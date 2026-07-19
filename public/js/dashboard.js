@@ -226,17 +226,139 @@
     $('#assign-modal').classList.add('open');
   }
 
+  const PLANS = {
+    starter: {
+      name: 'Starter',
+      monthly: 0,
+      perPickup: 29,
+      sameDayFee: 4,
+      sameDayIncluded: false,
+      cap: 50,
+    },
+    growth: {
+      name: 'Growth',
+      monthly: 149,
+      perPickup: 24,
+      sameDayFee: 0,
+      sameDayIncluded: true,
+      cap: 300,
+    },
+    network: {
+      name: 'Network',
+      monthly: 499,
+      perPickup: 20,
+      sameDayFee: 0,
+      sameDayIncluded: true,
+      cap: null,
+    },
+  };
+
+  function num(id, fallback = 0) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const v = Number(el.value);
+    return Number.isFinite(v) ? v : fallback;
+  }
+
+  function row(label, value, note = '') {
+    return `<tr>
+      <td><strong>${label}</strong>${note ? `<div class="muted">${note}</div>` : ''}</td>
+      <td class="amount" style="text-align:right;white-space:nowrap">${value}</td>
+    </tr>`;
+  }
+
+  function runEconomics() {
+    if (!$('#econ-form')) return;
+    const planKey = ($('#econ-plan') && $('#econ-plan').value) || 'growth';
+    const plan = PLANS[planKey] || PLANS.growth;
+    let pickups = Math.max(0, num('econ-pickups', 0));
+    if (plan.cap != null && pickups > plan.cap) {
+      // still calculate but note overage mentally — charge as-is for pilot
+    }
+    const sameDayPct = Math.min(100, Math.max(0, num('econ-same-day', 0))) / 100;
+    const avgQuote = Math.max(0, num('econ-quote', 0));
+    const marginPct = Math.min(100, Math.max(0, num('econ-margin', 0))) / 100;
+    const baseline = Math.max(0, num('econ-baseline', 0));
+    const liftPct = Math.min(100, Math.max(0, num('econ-lift', 0))) / 100;
+    const mismatchPct = Math.min(100, Math.max(0, num('econ-mismatch', 0))) / 100;
+
+    const sameDayCount = pickups * sameDayPct;
+    const sameDayFees = plan.sameDayIncluded ? 0 : sameDayCount * plan.sameDayFee;
+    const pickupFees = pickups * plan.perPickup;
+    const monthlyFees = plan.monthly + pickupFees + sameDayFees;
+    const cpp = pickups > 0 ? monthlyFees / pickups : plan.perPickup;
+
+    // Incremental closes from offering same-day (lift applied to baseline volume)
+    const extraCloses = baseline * liftPct;
+    // Only paid matches contribute device GP; mismatches still incur pickup fee
+    const paidFraction = 1 - mismatchPct;
+    const incrementalGp = extraCloses * avgQuote * marginPct * paidFraction;
+    const net = incrementalGp - monthlyFees;
+
+    $('#econ-cost').textContent = money(monthlyFees);
+    $('#econ-cost-sub').textContent = `${plan.name}: ${money(plan.monthly)} platform + pickups`;
+    $('#econ-cpp').textContent = money(Math.round(cpp));
+    $('#econ-extra').textContent = extraCloses.toFixed(1);
+    $('#econ-net').textContent = money(Math.round(net));
+    $('#econ-net-sub').textContent = net >= 0 ? 'Positive ROI at these assumptions' : 'Fees exceed modeled lift — adjust inputs';
+    $('#econ-net').style.color = net >= 0 ? 'var(--good)' : 'var(--bad)';
+
+    $('#econ-roi-body').innerHTML = [
+      row('Plan', plan.name),
+      row('Platform fee / mo', money(plan.monthly)),
+      row('Pickup fees / mo', money(pickupFees), `${pickups} × ${money(plan.perPickup)}`),
+      row('Same-day pay fees / mo', money(Math.round(sameDayFees)), plan.sameDayIncluded ? 'Included on Growth/Network' : `${Math.round(sameDayCount)} × ${money(plan.sameDayFee)}`),
+      row('Total DayLink cost / mo', money(Math.round(monthlyFees))),
+      row('Blended cost / pickup', money(Math.round(cpp))),
+      row('Baseline monthly closes', String(baseline)),
+      row('Conversion lift', `${(liftPct * 100).toFixed(1)}%` ),
+      row('Incremental closes', extraCloses.toFixed(1)),
+      row('Avg quote × margin', `${money(avgQuote)} × ${(marginPct * 100).toFixed(0)}%`),
+      row('Mismatch / non-pay rate', `${(mismatchPct * 100).toFixed(1)}%`, 'Applied to incremental GP only'),
+      row('Incremental gross profit', money(Math.round(incrementalGp))),
+      row('Net after DayLink', money(Math.round(net))),
+    ].join('');
+
+    const sameDayLine = plan.sameDayIncluded
+      ? row('Same-day pay rail', 'Included', 'When status = verified → paid')
+      : row('Same-day pay rail', money(plan.sameDayFee), 'Only if you release pay');
+
+    $('#econ-unit-body').innerHTML = [
+      row('Completed pickup fee', money(plan.perPickup)),
+      sameDayLine,
+      row('Typical all-in (w/ same-day)', money(plan.perPickup + (plan.sameDayIncluded ? 0 : plan.sameDayFee))),
+      row('As % of $' + avgQuote + ' quote', `${avgQuote ? (((plan.perPickup + (plan.sameDayIncluded ? 0 : plan.sameDayFee)) / avgQuote) * 100).toFixed(1) : '0'}%`),
+      row('vs own courier desk', 'Usually lower', 'Recruiting, insurance, training, no-shows'),
+    ].join('');
+
+    const capNote =
+      plan.cap != null && pickups > plan.cap
+        ? ` Note: ${plan.name} pilot cap is ${plan.cap}/mo — talk to us about Growth/Network.`
+        : '';
+    if (net >= 0) {
+      $('#econ-verdict').textContent =
+        `At these assumptions, same-day via DayLink adds ~${money(Math.round(net))}/mo after fees (${money(Math.round(cpp))} blended per pickup).${capNote}`;
+      $('#econ-verdict').style.color = 'var(--good)';
+    } else {
+      $('#econ-verdict').textContent =
+        `Under these assumptions fees exceed incremental gross profit by ${money(Math.round(-net))}/mo. Raise lift, volume, or margin — or lower pickups until product-market fit is clear.${capNote}`;
+      $('#econ-verdict').style.color = 'var(--bad)';
+    }
+  }
+
   function setView(name) {
     $$('.side-nav a[data-view]').forEach((a) => a.classList.toggle('active', a.dataset.view === name));
     $('#view-orders').classList.toggle('hidden', name !== 'orders');
     $('#view-create').classList.toggle('hidden', name !== 'create');
     $('#view-drivers').classList.toggle('hidden', name !== 'drivers');
     $('#view-api').classList.toggle('hidden', name !== 'api');
+    if ($('#view-economics')) $('#view-economics').classList.toggle('hidden', name !== 'economics');
     const titles = {
       orders: 'Purchased devices',
       create: 'New pickup',
       drivers: 'Driver network',
       api: 'API access',
+      economics: 'Pricing & unit economics',
     };
     $('#view-title').textContent = titles[name] || 'Dashboard';
     if (name === 'drivers') loadDrivers();
@@ -244,6 +366,7 @@
       const u = API.getUser('partner');
       if (u && u.api_key) $('#api-key').value = u.api_key;
     }
+    if (name === 'economics') runEconomics();
   }
 
   function escapeHtml(s) {
@@ -344,5 +467,18 @@
     }
   });
 
-  bootstrap();
+  // Economics calculator live updates
+  if ($('#econ-form')) {
+    $('#econ-form').addEventListener('input', runEconomics);
+    $('#econ-form').addEventListener('change', runEconomics);
+  }
+
+  // Deep link: /dashboard#economics
+  function routeHash() {
+    const h = (location.hash || '').replace(/^#/, '');
+    if (h === 'economics' && API.getToken('partner')) setView('economics');
+  }
+  window.addEventListener('hashchange', routeHash);
+
+  bootstrap().then(() => routeHash());
 })();

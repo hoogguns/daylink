@@ -35,8 +35,10 @@
       <nav class="side-nav">
         <a href="#" class="active" data-view="orders">Orders</a>
         <a href="#" data-view="create">New pickup</a>
+        <a href="#" data-view="economics">Economics</a>
         <a href="#" data-view="drivers">Drivers</a>
         <a href="#" data-view="api">API key</a>
+        <a href="/partners#pricing">Pricing sheet</a>
         <a href="/">Marketing site</a>
         <button type="button" class="linkish" id="btn-logout">Sign out</button>
       </nav>
@@ -211,6 +213,125 @@
                 </thead>
                 <tbody id="drivers-body"></tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ECONOMICS VIEW -->
+        <section id="view-economics" class="hidden">
+          <div class="stack" style="gap:0.75rem">
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Unit-economics calculator</h2>
+                <a class="btn btn-ghost btn-sm" href="/partners#pricing">Full pricing sheet</a>
+              </div>
+              <div class="panel-body pad">
+                <p class="text-sm text-muted mb-1">
+                  Model DayLink cost vs conversion lift from offering same-day pay. Illustrative pilot rates — not a binding quote.
+                </p>
+                <form id="econ-form" class="stack">
+                  <div class="form-grid">
+                    <label class="field">Plan
+                      <select name="plan" id="econ-plan">
+                        <option value="starter">Starter — $0/mo + $29/pickup (+$4 same-day)</option>
+                        <option value="growth" selected>Growth — $149/mo + $24/pickup (same-day included)</option>
+                        <option value="network">Network — $499/mo + $20/pickup (same-day included)</option>
+                      </select>
+                    </label>
+                    <label class="field">Completed DayLink pickups / month
+                      <input name="pickups" id="econ-pickups" type="number" min="0" step="1" value="80" />
+                    </label>
+                    <label class="field">% of pickups using same-day pay
+                      <input name="same_day_pct" id="econ-same-day" type="number" min="0" max="100" step="1" value="85" />
+                    </label>
+                    <label class="field">Avg device quote ($)
+                      <input name="avg_quote" id="econ-quote" type="number" min="1" step="1" value="280" />
+                    </label>
+                    <label class="field">Your gross margin on device (%)
+                      <input name="margin_pct" id="econ-margin" type="number" min="0" max="100" step="1" value="22" />
+                    </label>
+                    <label class="field">Baseline monthly closes (no same-day)
+                      <input name="baseline" id="econ-baseline" type="number" min="0" step="1" value="200" />
+                    </label>
+                    <label class="field">Expected conversion lift from same-day (%)
+                      <input name="lift_pct" id="econ-lift" type="number" min="0" max="100" step="0.5" value="10" />
+                    </label>
+                    <label class="field">Mismatch / non-pay rate (%)
+                      <input name="mismatch_pct" id="econ-mismatch" type="number" min="0" max="100" step="0.5" value="8" />
+                    </label>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <div class="stat-row" id="econ-stats" style="grid-template-columns:repeat(2,1fr)">
+              <div class="stat"><div class="label">DayLink cost / mo</div><div class="value" id="econ-cost">—</div><div class="sub" id="econ-cost-sub">Platform + pickups + pay rail</div></div>
+              <div class="stat"><div class="label">Cost per pickup</div><div class="value" id="econ-cpp">—</div><div class="sub">Blended all-in fee</div></div>
+              <div class="stat"><div class="label">Incremental closes</div><div class="value" id="econ-extra">—</div><div class="sub">From conversion lift</div></div>
+              <div class="stat"><div class="label">Net after DayLink</div><div class="value" id="econ-net">—</div><div class="sub" id="econ-net-sub">Incremental GP − fees</div></div>
+            </div>
+
+            <div class="two-col">
+              <div class="panel">
+                <div class="panel-head"><h2>Partner ROI breakdown</h2></div>
+                <div class="panel-body pad">
+                  <table class="app" style="min-width:0">
+                    <tbody id="econ-roi-body"></tbody>
+                  </table>
+                  <p class="text-sm text-muted mt-1" id="econ-verdict"></p>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h2>Per completed pickup (fee stack)</h2></div>
+                <div class="panel-body pad">
+                  <table class="app" style="min-width:0">
+                    <tbody id="econ-unit-body"></tbody>
+                  </table>
+                  <p class="text-sm text-muted mt-1">
+                    DayLink’s internal driver + ops costs are not billed to you line-by-line — you pay the plan rates above. Use this stack to compare vs building your own courier desk.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head"><h2>Plan cheatsheet</h2></div>
+              <div class="panel-body" style="overflow:auto">
+                <table class="app">
+                  <thead>
+                    <tr>
+                      <th>Plan</th>
+                      <th>Monthly</th>
+                      <th>Per pickup</th>
+                      <th>Same-day pay</th>
+                      <th>Cap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>Starter</strong></td>
+                      <td>$0</td>
+                      <td>$29</td>
+                      <td>+$4 when released</td>
+                      <td>50 / mo</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Growth</strong></td>
+                      <td>$149</td>
+                      <td>$24</td>
+                      <td>Included</td>
+                      <td>300 / mo</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Network</strong></td>
+                      <td>from $499</td>
+                      <td>$19–$22</td>
+                      <td>Included</td>
+                      <td>SLA / unlimited</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>
