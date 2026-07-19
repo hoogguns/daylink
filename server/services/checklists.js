@@ -9,7 +9,6 @@ function store() {
 }
 
 function persist(db) {
-  // force save via replace
   if (typeof db._replace === 'function') {
     db._replace(db._data());
   }
@@ -96,6 +95,48 @@ function updateTemplate(partnerId, id, body) {
   return tpl;
 }
 
+/**
+ * Delete a checklist template.
+ * Guards:
+ *  - Cannot delete if it is the only template for the partner.
+ *  - Cannot delete the default; must promote another first.
+ *  - Cannot delete if any open orders reference this checklist_template_id.
+ */
+function deleteTemplate(partnerId, id) {
+  const { db, data } = store();
+  const tpl = data.checklist_templates.find((c) => c.id === id && c.partner_id === partnerId);
+  if (!tpl) {
+    const err = new Error('Checklist not found');
+    err.status = 404;
+    throw err;
+  }
+  const partnerTemplates = data.checklist_templates.filter((c) => c.partner_id === partnerId);
+  if (partnerTemplates.length <= 1) {
+    const err = new Error('Cannot delete the last checklist template — at least one must exist for order creation');
+    err.status = 400;
+    throw err;
+  }
+  if (tpl.is_default) {
+    const err = new Error('Cannot delete the default checklist — promote another template to default first');
+    err.status = 400;
+    throw err;
+  }
+  const TERMINAL = ['paid', 'delivered', 'cancelled'];
+  const inUse = (data.orders || []).some(
+    (o) => o.checklist_template_id === id && o.partner_id === partnerId && !TERMINAL.includes(o.status)
+  );
+  if (inUse) {
+    const err = new Error('Checklist is referenced by one or more open orders — close them before deleting');
+    err.status = 409;
+    throw err;
+  }
+  data.checklist_templates = data.checklist_templates.filter(
+    (c) => !(c.id === id && c.partner_id === partnerId)
+  );
+  persist(db);
+  return { deleted: id };
+}
+
 function defaultForPartner(partnerId) {
   const list = ensureDefault(partnerId);
   return list.find((c) => c.is_default) || list[0];
@@ -107,5 +148,6 @@ module.exports = {
   getTemplate,
   createTemplate,
   updateTemplate,
+  deleteTemplate,
   defaultForPartner,
 };

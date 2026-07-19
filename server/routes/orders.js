@@ -1,4 +1,5 @@
 const express = require('express');
+const { v4: uuid } = require('uuid');
 const { requirePartner, requireAuth } = require('../middleware/auth');
 const {
   createOrder,
@@ -22,7 +23,7 @@ const { PLANS, COGS } = require('../config/pricing');
 
 const router = express.Router();
 
-// ── Partner endpoints ──────────────────────────────────────────────
+// ── Partner endpoints ──────────────────────────────────────────────────────
 
 router.get('/partner/stats', requirePartner, (req, res) => {
   res.json(partnerStats(req.user.id));
@@ -53,9 +54,17 @@ router.get('/partner/statuses', requirePartner, (_req, res) => {
   });
 });
 
-// Checklists (partner-owned grading)
+// ── Checklists (partner-owned grading) ────────────────────────────────────
+
 router.get('/partner/checklists', requirePartner, (req, res) => {
   res.json({ checklists: checklists.listTemplates(req.user.id) });
+});
+
+// GET single checklist template by id — needed by order-create UI
+router.get('/partner/checklists/:id', requirePartner, (req, res) => {
+  const tpl = checklists.getTemplate(req.user.id, req.params.id);
+  if (!tpl) return res.status(404).json({ error: 'Checklist not found' });
+  res.json({ checklist: tpl });
 });
 
 router.post('/partner/checklists', requirePartner, (req, res) => {
@@ -75,6 +84,18 @@ router.patch('/partner/checklists/:id', requirePartner, (req, res) => {
     res.status(err.status || 500).json({ error: err.message });
   }
 });
+
+// DELETE checklist template — cannot delete the last/default one
+router.delete('/partner/checklists/:id', requirePartner, (req, res) => {
+  try {
+    checklists.deleteTemplate(req.user.id, req.params.id);
+    res.json({ ok: true, deleted: req.params.id });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ── Orders ────────────────────────────────────────────────────────────────
 
 router.get('/partner/orders', requirePartner, (req, res) => {
   const { status, q, limit, offset } = req.query;
@@ -139,7 +160,6 @@ router.get('/partner/orders/:id', requirePartner, (req, res) => {
   });
 });
 
-/** Partner status update (ops / buyback backend / support) */
 router.post('/partner/orders/:id/status', requirePartner, (req, res) => {
   const order = getOrderById(req.params.id);
   if (!order || order.partner_id !== req.user.id) {
@@ -160,10 +180,6 @@ router.post('/partner/orders/:id/status', requirePartner, (req, res) => {
   }
 });
 
-/**
- * Partner tracking integration — push buyback label / carrier tracking number.
- * Body: { tracking_number, tracking_carrier, tracking_url?, mark_shipped? }
- */
 router.post('/partner/orders/:id/tracking', requirePartner, (req, res) => {
   const order = getOrderById(req.params.id);
   if (!order || order.partner_id !== req.user.id) {
@@ -222,7 +238,7 @@ router.post('/partner/orders/:id/assign', requirePartner, (req, res) => {
   }
 });
 
-// ── Driver endpoints ───────────────────────────────────────────────
+// ── Driver endpoints ───────────────────────────────────────────────────────
 
 router.get('/driver/orders', requireAuth('driver'), (req, res) => {
   const mine = listOrders({ driverId: req.user.id, limit: 100 });
@@ -262,7 +278,6 @@ router.post('/driver/orders/:id/status', requireAuth('driver'), (req, res) => {
   }
 });
 
-/** Driver can attach last-mile / parcel tracking after drop */
 router.post('/driver/orders/:id/tracking', requireAuth('driver'), (req, res) => {
   const order = getOrderById(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -316,7 +331,19 @@ router.get('/partner/drivers', requirePartner, (req, res) => {
   res.json({ drivers });
 });
 
-// ── Driver platform integrations (Roadie, Shipt, …) ────────────────
+// ── Driver platform integrations (Roadie, Shipt, …) ──────────────────────
+
+/**
+ * Public provider catalogue — no auth required.
+ * Lets the dashboard populate the integration picker without a round-trip after login.
+ */
+router.get('/integrations/providers', (req, res) => {
+  res.json({
+    model: 'saas_connectors',
+    note: 'PurCheaper integrates with gig platforms. Partners own driver relationships and liability.',
+    providers: dispatch.listProviders(),
+  });
+});
 
 router.get('/partner/integrations', requirePartner, (req, res) => {
   res.json({
@@ -335,7 +362,24 @@ router.post('/partner/integrations/:provider/connect', requirePartner, (req, res
   }
 });
 
-/** Send order to Roadie / Shipt / manual / custom webhook (MVP mock job id) */
+/**
+ * Disable / disconnect a provider integration.
+ * Body: { revoke_credentials?: boolean } — defaults true.
+ */
+router.post('/partner/integrations/:provider/disconnect', requirePartner, (req, res) => {
+  try {
+    const result = dispatch.disconnectProvider(
+      req.user.id,
+      req.params.provider,
+      req.body || {}
+    );
+    res.json({ integration: result, message: `${req.params.provider} disconnected` });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/** Dispatch order to Roadie / Shipt / manual / custom webhook */
 router.post('/partner/orders/:id/dispatch', requirePartner, (req, res) => {
   const order = getOrderById(req.params.id);
   if (!order || order.partner_id !== req.user.id) {
@@ -343,9 +387,7 @@ router.post('/partner/orders/:id/dispatch', requirePartner, (req, res) => {
   }
   try {
     const result = dispatch.dispatchOrder(order, req.user.id, req.body || {});
-    // log via status service path — soft event
     const db = getDb();
-    const { v4: uuid } = require('uuid');
     db.prepare(
       `INSERT INTO order_events (id, order_id, actor_type, actor_id, event, detail)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -387,7 +429,7 @@ router.get('/partner/orders/:id/dispatch', requirePartner, (req, res) => {
   });
 });
 
-/** Public webhook intake for platform callbacks (auth in production via secrets) */
+/** Public webhook intake for platform callbacks */
 router.post('/integrations/webhooks/:provider', (req, res) => {
   try {
     const result = dispatch.handleProviderWebhook(req.params.provider, req.body || {});

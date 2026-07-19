@@ -45,7 +45,7 @@ const PLANS = {
     overage_per_order: 0.08,
     seats: 100,
     api: true,
-    custom_checklists: null, // unlimited
+    custom_checklists: null,
     webhooks: true,
     tracking: true,
     dual_status: true,
@@ -83,11 +83,19 @@ function resolvePlan(planId) {
 }
 
 /**
- * SaaS invoice for a period: subscription + optional overage only.
+ * SaaS invoice for a period: subscription + optional overage.
+ *
+ * @param {object}  opts
+ * @param {string}  opts.planId
+ * @param {number}  opts.completedPickups    - billable pickups in period
+ * @param {number}  [opts.sameDayPays=0]     - count of same-day ACH payments released
+ *                                             (informational; no extra fee at MVP tier)
+ * @param {boolean} [opts.includeMonthly]    - include the monthly platform fee (default true)
  */
-function estimateInvoice({ planId, completedPickups, includeMonthly = true }) {
+function estimateInvoice({ planId, completedPickups, sameDayPays = 0, includeMonthly = true }) {
   const plan = resolvePlan(planId);
   const orders = Math.max(0, Number(completedPickups) || 0);
+  const pays = Math.max(0, Number(sameDayPays) || 0);
   const included = plan.included_orders == null ? orders : plan.included_orders;
   const overageUnits = Math.max(0, orders - included);
   const overage = overageUnits * (plan.overage_per_order || 0);
@@ -97,6 +105,7 @@ function estimateInvoice({ planId, completedPickups, includeMonthly = true }) {
     plan,
     model: 'saas_subscription',
     orders_in_period: orders,
+    same_day_pays: pays,
     included_orders: plan.included_orders,
     overage_orders: overageUnits,
     platform_fee: platform,
