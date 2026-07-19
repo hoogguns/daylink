@@ -1,5 +1,6 @@
 const { v4: uuid } = require('uuid');
 const { getDb } = require('../db');
+const { resolvePlan, estimateInvoice, estimateOperatorMargin, PLANS, COGS } = require('../config/pricing');
 
 const STATUSES = [
   'pending',
@@ -384,6 +385,81 @@ function marketplaceStats() {
   return totals;
 }
 
+function monthKey(d = new Date()) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function inMonth(iso, key) {
+  if (!iso) return false;
+  const s = String(iso).replace('T', ' ');
+  return s.slice(0, 7) === key;
+}
+
+/**
+ * Live billing + DayLink contribution for a partner account (current month).
+ * Completed pickup = device reached picked_up / verifying / verified / paid / mismatch
+ * (cancelled & pending/assigned/en_route not billable yet).
+ */
+function partnerEconomics(partnerId) {
+  const db = getDb();
+  const partner = db
+    .prepare(
+      `SELECT id, company_name, email, plan, api_key, created_at FROM partners WHERE id = ?`
+    )
+    .get(partnerId);
+  if (!partner) {
+    throw Object.assign(new Error('Partner not found'), { status: 404 });
+  }
+
+  const { orders } = listOrders({ partnerId, limit: 500, offset: 0 });
+  const key = monthKey();
+  const monthOrders = orders.filter((o) => inMonth(o.created_at, key));
+
+  const billableStatuses = new Set(['picked_up', 'verifying', 'verified', 'paid', 'mismatch']);
+  const completed = monthOrders.filter((o) => billableStatuses.has(o.status) || o.packed);
+  const sameDayPays = monthOrders.filter((o) => o.paid && o.payment_method === 'ach_same_day');
+  // also count any paid this month
+  const paidThisMonth = monthOrders.filter((o) => o.paid);
+
+  const planId = partner.plan || 'growth';
+  const invoice = estimateInvoice({
+    planId,
+    completedPickups: completed.length,
+    sameDayPays: Math.max(sameDayPays.length, paidThisMonth.length),
+    includeMonthly: true,
+  });
+  const operator = estimateOperatorMargin(invoice);
+
+  return {
+    period: key,
+    period_label: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    partner: {
+      id: partner.id,
+      company_name: partner.company_name,
+      plan: partner.plan,
+    },
+    activity: {
+      orders_created: monthOrders.length,
+      completed_pickups: completed.length,
+      paid: paidThisMonth.length,
+      open: monthOrders.filter((o) => !['paid', 'cancelled', 'mismatch'].includes(o.status)).length,
+      mismatch: monthOrders.filter((o) => o.status === 'mismatch').length,
+      cancelled: monthOrders.filter((o) => o.status === 'cancelled').length,
+      quoted_volume: monthOrders.reduce((s, o) => s + Number(o.quoted_amount || 0), 0),
+    },
+    partner_invoice: invoice,
+    daylink_profit: {
+      ...operator,
+      note:
+        'Estimated DayLink contribution on this partner’s volume: invoice revenue minus assumed Wasatch COGS (driver, supplies, risk, ops).',
+    },
+    rates: {
+      plans: PLANS,
+      cogs: COGS,
+    },
+  };
+}
+
 module.exports = {
   STATUSES,
   createOrder,
@@ -396,4 +472,5 @@ module.exports = {
   processPayment,
   partnerStats,
   marketplaceStats,
+  partnerEconomics,
 };

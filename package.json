@@ -5,9 +5,11 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "start:prod": "node server/index.js",
     "dev": "nodemon server/index.js",
     "seed": "node server/seed.js",
-    "db:reset": "node server/seed.js --reset"
+    "db:reset": "node server/seed.js --reset",
+    "launch-check": "node -e \"const http=require('http');http.get('http://127.0.0.1:'+(process.env.PORT||3847)+'/api/health',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>{console.log(d);process.exit(r.statusCode===200?0:1)})}).on('error',e=>{console.error(e);process.exit(1)})\""
   },
   "keywords": [
     "logistics",

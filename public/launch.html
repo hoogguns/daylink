@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <title>Launch checklist — DayLink</title>
+  <link rel="stylesheet" href="/css/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container">
+      <a class="brand" href="/"><span class="brand-mark">D</span> DayLink <span class="tag">Internal</span></a>
+      <div class="nav-cta" style="display:flex">
+        <a class="btn btn-primary btn-sm" href="/dashboard#economics">Economics</a>
+      </div>
+    </div>
+  </header>
+  <main class="section">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <h2>Launch checklist</h2>
+          <p>Move from demo → first live Wasatch partner. Check items off as you go.</p>
+        </div>
+        <span class="chip chip-brand" id="ready-chip">Loading…</span>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h3 class="mb-1">Product ready</h3>
+          <ul class="list-tight" id="check-product">
+            <li>Marketing site live</li>
+            <li>Partner dashboard + API auth</li>
+            <li>Driver verify → same-day pay gate</li>
+            <li>Pricing sheet published</li>
+            <li>Unit-economics + live profit panel</li>
+            <li>Privacy + Terms pages</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3 class="mb-1">Go-to-market</h3>
+          <ul class="list-tight">
+            <li>2 design-partner buyback sites identified</li>
+            <li>Coverage ZIP list confirmed (Ogden→Provo)</li>
+            <li>Packing kit + label process documented</li>
+            <li>Driver training SOP completed (≥3 drivers)</li>
+            <li>Insurance / liability matrix signed off</li>
+            <li>First paid pilot order form</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3 class="mb-1">Ops money</h3>
+          <ul class="list-tight">
+            <li>Partner fee ≥ fully loaded COGS (~$27 base)</li>
+            <li>Growth plan default ($149 + $24)</li>
+            <li>No-show / cancel policy agreed</li>
+            <li>Weekly margin review in dashboard Economics</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3 class="mb-1">System status</h3>
+          <pre class="mono text-sm" id="sys" style="white-space:pre-wrap;background:var(--canvas);padding:.75rem;border-radius:8px;margin:0">Checking…</pre>
+          <div class="row mt-1">
+            <a class="btn btn-soft btn-sm" href="/api/health">Health API</a>
+            <a class="btn btn-ghost btn-sm" href="/api/pricing">Pricing API</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script>
+    Promise.all([
+      fetch('/api/health').then((r) => r.json()),
+      fetch('/api/stats').then((r) => r.json()),
+      fetch('/api/pricing').then((r) => r.json()),
+    ])
+      .then(([health, stats, pricing]) => {
+        document.getElementById('sys').textContent = JSON.stringify({ health, stats, plans: pricing.plans.map((p) => p.name) }, null, 2);
+        document.getElementById('ready-chip').textContent = health.ok ? 'API online' : 'API issue';
+        document.getElementById('ready-chip').className = 'chip ' + (health.ok ? 'chip-good' : 'chip-bad');
+      })
+      .catch((e) => {
+        document.getElementById('sys').textContent = String(e);
+        document.getElementById('ready-chip').textContent = 'Offline';
+        document.getElementById('ready-chip').className = 'chip chip-bad';
+      });
+  </script>
+</body>
+</html>

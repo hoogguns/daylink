@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const { getDb } = require('../db');
 const { marketplaceStats } = require('../services/orders');
+const { PLANS, COGS, cogsPerPickup } = require('../config/pricing');
 
 const router = express.Router();
 
@@ -27,7 +28,30 @@ const COVERAGE = {
 };
 
 router.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'daylink', market: COVERAGE.market });
+  res.json({
+    ok: true,
+    service: 'daylink',
+    market: COVERAGE.market,
+    version: '1.1.0',
+    env: process.env.NODE_ENV || 'development',
+  });
+});
+
+/** Public pricing sheet (no auth) for marketing + calculator defaults */
+router.get('/pricing', (_req, res) => {
+  res.json({
+    market: COVERAGE.market,
+    currency: 'USD',
+    plans: Object.values(PLANS).filter((p) => p.id !== 'pilot'),
+    notes: [
+      'Fees billed to buyback partners only — not device sellers.',
+      'Completed pickup = device collected (includes mismatch holds).',
+      'Cancelled before driver claim = $0.',
+      'Pilot rates locked 90 days from first live order.',
+    ],
+    estimated_cogs_per_pickup: cogsPerPickup(),
+    cogs_breakdown: COGS,
+  });
 });
 
 router.get('/coverage', (_req, res) => {

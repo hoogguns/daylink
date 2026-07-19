@@ -39,7 +39,7 @@
   }
 
   async function refreshAll() {
-    await Promise.all([loadStats(), loadOrders(), loadDrivers()]);
+    await Promise.all([loadStats(), loadEconomicsLive(), loadOrders(), loadDrivers()]);
     if (selectedId) await showDetail(selectedId);
   }
 
@@ -51,6 +51,70 @@
     $('#s-paid').textContent = s.paid_today.count;
     $('#s-paid-vol').textContent = money(s.paid_today.volume) + ' volume';
     $('#s-cycle').textContent = s.avg_cycle_hours != null ? s.avg_cycle_hours + 'h' : '—';
+  }
+
+  function money2(n) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(Number(n) || 0);
+  }
+
+  async function loadEconomicsLive() {
+    try {
+      const e = await API.partnerEconomics();
+      const inv = e.partner_invoice;
+      const prof = e.daylink_profit;
+      const act = e.activity;
+
+      if ($('#profit-period')) $('#profit-period').textContent = e.period_label || e.period;
+      if ($('#m-invoice')) {
+        $('#m-invoice').textContent = money2(inv.total);
+        $('#m-invoice-sub').textContent = `${inv.plan.name} · ${act.completed_pickups} pickups · platform ${money2(inv.platform_fee)}`;
+      }
+      if ($('#m-profit')) {
+        $('#m-profit').textContent = money2(prof.contribution);
+        $('#m-profit').style.color = prof.contribution >= 0 ? 'var(--good)' : 'var(--bad)';
+        $('#m-profit-sub').textContent = `COGS ${money2(prof.cogs_total)} (${money2(prof.cogs_per_pickup)}/job)`;
+      }
+      if ($('#m-pickups')) {
+        $('#m-pickups').textContent = String(act.completed_pickups);
+        $('#m-pickups-sub').textContent = `${act.orders_created} created · ${act.paid} paid · ${act.mismatch} mismatch`;
+      }
+      if ($('#m-unit')) {
+        const u = prof.contribution_per_pickup;
+        $('#m-unit').textContent = u == null ? '—' : money2(u);
+        $('#m-unit-sub').textContent =
+          prof.margin_pct == null ? 'No billable pickups yet' : `${prof.margin_pct.toFixed(0)}% contribution margin`;
+        if (u != null) $('#m-unit').style.color = u >= 0 ? 'var(--good)' : 'var(--bad)';
+      }
+
+      // Economics tab live block
+      if ($('#e-live-invoice')) {
+        $('#e-live-invoice').textContent = money2(inv.total);
+        $('#e-live-invoice-sub').textContent = `What this partner pays DayLink (${inv.plan.name})`;
+        $('#e-live-profit').textContent = money2(prof.contribution);
+        $('#e-live-profit').style.color = prof.contribution >= 0 ? 'var(--good)' : 'var(--bad)';
+        $('#e-live-profit-sub').textContent = 'Your platform profit on their volume (est.)';
+        $('#e-live-breakdown').innerHTML = [
+          row('Period', e.period_label || e.period),
+          row('Plan', inv.plan.name),
+          row('Completed pickups', String(act.completed_pickups)),
+          row('Same-day / paid', String(act.paid)),
+          row('Platform fee', money2(inv.platform_fee)),
+          row('Pickup fees', money2(inv.pickup_fees), `${act.completed_pickups} × ${money2(inv.plan.perPickup)}`),
+          row('Same-day fees', money2(inv.same_day_fees)),
+          row('Partner invoice total', money2(inv.total)),
+          row('Est. COGS (driver+kit+risk+ops)', money2(prof.cogs_total), money2(prof.cogs_per_pickup) + ' each'),
+          row('DayLink contribution', money2(prof.contribution)),
+        ].join('');
+      }
+      return e;
+    } catch (err) {
+      console.warn('economics', err);
+      return null;
+    }
   }
 
   async function loadOrders() {
@@ -366,7 +430,17 @@
       const u = API.getUser('partner');
       if (u && u.api_key) $('#api-key').value = u.api_key;
     }
-    if (name === 'economics') runEconomics();
+    if (name === 'economics') {
+      runEconomics();
+      loadEconomicsLive();
+    }
+    // Profit strip visible on main ops views
+    if ($('#profit-panel')) {
+      $('#profit-panel').classList.toggle('hidden', name === 'create' || name === 'api');
+    }
+    if ($('#stats-row')) {
+      $('#stats-row').classList.toggle('hidden', name === 'economics' || name === 'create' || name === 'api');
+    }
   }
 
   function escapeHtml(s) {
@@ -472,6 +546,18 @@
     $('#econ-form').addEventListener('input', runEconomics);
     $('#econ-form').addEventListener('change', runEconomics);
   }
+  if ($('#btn-econ-refresh')) {
+    $('#btn-econ-refresh').addEventListener('click', () => loadEconomicsLive());
+  }
+  // Deep-link helper from profit panel
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a[href="#economics"]');
+    if (a) {
+      e.preventDefault();
+      setView('economics');
+      location.hash = 'economics';
+    }
+  });
 
   // Deep link: /dashboard#economics
   function routeHash() {

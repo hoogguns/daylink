@@ -12,6 +12,9 @@ DayLink connects cell phone / device buyback websites with sellers at home via t
 | Partner dashboard | http://localhost:3847/dashboard | Buyback website operators |
 | Partner onboarding | http://localhost:3847/partners | New buyback partners |
 | Driver portal | http://localhost:3847/drivers | Trained gig drivers |
+| Pricing | http://localhost:3847/partners#pricing | Partner pricing sheet |
+| Economics | http://localhost:3847/dashboard#economics | Live invoice + profit + calculator |
+| Launch checklist | http://localhost:3847/launch | Internal go-live list |
 | REST API | http://localhost:3847/api/* | Integrations |
 
 ## Why this product
@@ -73,10 +76,36 @@ GET  /api/partner/orders/:id
 POST /api/partner/orders/:id/pay
 POST /api/partner/orders/:id/assign
 GET  /api/partner/stats
+GET  /api/partner/economics
+GET  /api/partner/pricing
 GET  /api/partner/drivers
+GET  /api/pricing
 ```
 
 Authenticate with `Authorization: Bearer <token>` or `X-API-Key: dl_live_…`.
+
+## How DayLink makes money
+
+Partners pay **platform + per completed pickup** (see `/partners#pricing`).  
+Your cost is mainly **driver + pack kit + risk + ops** (~$27 default; override with `COGS_*` env vars).  
+
+**Contribution** = partner invoice − COGS on completed pickups.  
+The partner dashboard **This month · money** panel shows both **their spend** and **your estimated profit** on their volume.
+
+## Launch
+
+1. Set a strong `JWT_SECRET` and `NODE_ENV=production` on the host.  
+2. Walk `/launch` checklist.  
+3. Create a real partner account (or use demo seed only for demos).  
+4. Point a domain at the Node process (or put it behind a reverse proxy).  
+5. Review `/privacy` and `/terms` with counsel before scale.
+
+```bash
+npm install
+cp .env.example .env
+# edit JWT_SECRET, COGS_*, PORT
+npm start
+```
 
 Public:
 

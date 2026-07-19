@@ -88,6 +88,8 @@ const API = {
   assignOrder: (id, driver_id) =>
     API.request(`/api/partner/orders/${id}/assign`, { method: 'POST', body: { driver_id } }),
   partnerDrivers: () => API.request('/api/partner/drivers'),
+  partnerEconomics: () => API.request('/api/partner/economics'),
+  publicPricing: () => API.request('/api/pricing', { auth: false }),
 
   // driver
   driverOrders: () => API.request('/api/driver/orders', { role: 'driver' }),

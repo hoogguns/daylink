@@ -10,8 +10,10 @@ const {
   verifyDevice,
   processPayment,
   partnerStats,
+  partnerEconomics,
 } = require('../services/orders');
 const { getDb } = require('../db');
+const { PLANS, COGS, cogsPerPickup } = require('../config/pricing');
 
 const router = express.Router();
 
@@ -19,6 +21,18 @@ const router = express.Router();
 
 router.get('/partner/stats', requirePartner, (req, res) => {
   res.json(partnerStats(req.user.id));
+});
+
+router.get('/partner/economics', requirePartner, (req, res) => {
+  try {
+    res.json(partnerEconomics(req.user.id));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/partner/pricing', requirePartner, (_req, res) => {
+  res.json({ plans: PLANS, cogs_defaults: COGS, cogs_per_pickup: cogsPerPickup() });
 });
 
 router.get('/partner/orders', requirePartner, (req, res) => {

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /drivers
+Disallow: /launch
+Disallow: /api/
+
+Sitemap: /sitemap.xml

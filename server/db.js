@@ -363,6 +363,18 @@ function createDb() {
       const { id, company_name, contact_name, email, phone, website, plan, api_key, created_at } = p;
       return { id, company_name, contact_name, email, phone, website, plan, api_key, created_at };
     }
+    if (/SELECT id, company_name, email, plan, api_key, created_at FROM partners WHERE id = \?/i.test(sql)) {
+      const p = data.partners.find((x) => x.id === params[0]);
+      if (!p) return undefined;
+      return {
+        id: p.id,
+        company_name: p.company_name,
+        email: p.email,
+        plan: p.plan,
+        api_key: p.api_key,
+        created_at: p.created_at,
+      };
+    }
     if (/SELECT id, company_name, email, plan, active FROM partners WHERE api_key = \?/i.test(sql)) {
       const p = data.partners.find((x) => x.api_key === params[0]);
       if (!p) return undefined;
