@@ -94,7 +94,6 @@ function listPartnerIntegrations(partnerId) {
             external_account: conn.external_account || null,
             default: !!conn.is_default,
             connected_at: conn.connected_at,
-            // never expose raw secrets in list
             has_credentials: !!(conn.api_key || conn.webhook_url),
           }
         : null,
@@ -109,7 +108,9 @@ function connectProvider(partnerId, providerId, body = {}) {
     throw err;
   }
   const { db, data } = store();
-  let row = data.partner_integrations.find((i) => i.partner_id === partnerId && i.provider === providerId);
+  let row = data.partner_integrations.find(
+    (i) => i.partner_id === partnerId && i.provider === providerId
+  );
   if (!row) {
     row = {
       id: uuid(),
@@ -132,9 +133,48 @@ function connectProvider(partnerId, providerId, body = {}) {
       if (i.partner_id === partnerId) i.is_default = i.id === row.id;
     });
   }
-  // If first connection, make default
-  const anyDefault = data.partner_integrations.some((i) => i.partner_id === partnerId && i.is_default);
+  const anyDefault = data.partner_integrations.some(
+    (i) => i.partner_id === partnerId && i.is_default
+  );
   if (!anyDefault) row.is_default = true;
+  save(db, data);
+  return listPartnerIntegrations(partnerId).find((p) => p.id === providerId);
+}
+
+/**
+ * Disable a provider integration and optionally revoke stored credentials.
+ * Body: { revoke_credentials?: boolean } — defaults true.
+ */
+function disconnectProvider(partnerId, providerId, body = {}) {
+  if (!PROVIDERS[providerId]) {
+    const err = new Error('Unknown provider');
+    err.status = 400;
+    throw err;
+  }
+  const { db, data } = store();
+  const row = data.partner_integrations.find(
+    (i) => i.partner_id === partnerId && i.provider === providerId
+  );
+  if (!row) {
+    const err = new Error('Integration not found — connect this provider first');
+    err.status = 404;
+    throw err;
+  }
+  row.enabled = false;
+  row.updated_at = new Date().toISOString();
+  const revoke = body.revoke_credentials !== false; // default true
+  if (revoke) {
+    delete row.api_key;
+    delete row.webhook_url;
+    row.has_credentials = false;
+  }
+  if (row.is_default) {
+    row.is_default = false;
+    const next = data.partner_integrations.find(
+      (i) => i.partner_id === partnerId && i.enabled !== false && i.provider !== providerId
+    );
+    if (next) next.is_default = true;
+  }
   save(db, data);
   return listPartnerIntegrations(partnerId).find((p) => p.id === providerId);
 }
@@ -142,15 +182,15 @@ function connectProvider(partnerId, providerId, body = {}) {
 function getDefaultProvider(partnerId) {
   const { data } = store();
   const conn =
-    data.partner_integrations.find((i) => i.partner_id === partnerId && i.is_default && i.enabled !== false) ||
-    data.partner_integrations.find((i) => i.partner_id === partnerId && i.enabled !== false);
+    data.partner_integrations.find(
+      (i) => i.partner_id === partnerId && i.is_default && i.enabled !== false
+    ) ||
+    data.partner_integrations.find(
+      (i) => i.partner_id === partnerId && i.enabled !== false
+    );
   return conn ? conn.provider : 'manual';
 }
 
-/**
- * Create a dispatch job on the selected platform (MVP: simulated job IDs + event).
- * Production: swap adapters to real Roadie/Shipt/Uber APIs using stored credentials.
- */
 function dispatchOrder(order, partnerId, opts = {}) {
   const providerId = opts.provider || getDefaultProvider(partnerId) || 'manual';
   const provider = PROVIDERS[providerId];
@@ -160,18 +200,20 @@ function dispatchOrder(order, partnerId, opts = {}) {
     throw err;
   }
   if (provider.status === 'planned' && !opts.force) {
-    const err = new Error(`${provider.name} connector is planned — enable when API keys are live, or use Roadie/Shipt/manual today`);
+    const err = new Error(
+      `${provider.name} connector is planned — enable when API keys are live, or use Roadie/Shipt/manual today`
+    );
     err.status = 400;
     throw err;
   }
 
   const { db, data } = store();
-  const conn = data.partner_integrations.find((i) => i.partner_id === partnerId && i.provider === providerId);
-
-  // Adapter stub — replace with real HTTP calls per provider
   const externalId =
     opts.external_id ||
-    `${providerId.toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    `${providerId.toUpperCase()}-${Date.now().toString(36).toUpperCase()}-${Math.random()
+      .toString(36)
+      .slice(2, 6)
+      .toUpperCase()}`;
 
   const job = {
     id: uuid(),
@@ -194,8 +236,7 @@ function dispatchOrder(order, partnerId, opts = {}) {
   };
   data.dispatch_jobs.push(job);
 
-  // Stamp order
-  const row = data.orders.find((o) => o.id === order.id);
+  const row = data.orders && data.orders.find((o) => o.id === order.id);
   if (row) {
     row.dispatch_provider = providerId;
     row.dispatch_external_id = externalId;
@@ -204,12 +245,7 @@ function dispatchOrder(order, partnerId, opts = {}) {
   }
   save(db, data);
 
-  return {
-    job,
-    provider,
-    connected: !!(conn && conn.enabled !== false),
-    message: job.note,
-  };
+  return { job, provider, message: job.note };
 }
 
 function listJobsForOrder(orderId) {
@@ -217,9 +253,6 @@ function listJobsForOrder(orderId) {
   return data.dispatch_jobs.filter((j) => j.order_id === orderId);
 }
 
-/**
- * Inbound webhook from Roadie/Shipt/etc. (MVP accepts status updates by external id).
- */
 function handleProviderWebhook(providerId, body = {}) {
   if (!PROVIDERS[providerId]) {
     const err = new Error('Unknown provider');
@@ -229,16 +262,21 @@ function handleProviderWebhook(providerId, body = {}) {
   const { db, data } = store();
   const externalId = body.external_id || body.job_id || body.id;
   const status = body.status || body.state || 'updated';
-  const job = data.dispatch_jobs.find((j) => j.provider === providerId && j.external_id === externalId);
+  const job = data.dispatch_jobs.find(
+    (j) => j.provider === providerId && j.external_id === externalId
+  );
   if (job) {
     job.status = status;
     job.last_webhook_at = new Date().toISOString();
     job.last_webhook = body;
   }
-  const order = data.orders.find((o) => o.dispatch_external_id === externalId || (job && o.id === job.order_id));
+  const order =
+    data.orders &&
+    data.orders.find(
+      (o) => o.dispatch_external_id === externalId || (job && o.id === job.order_id)
+    );
   if (order) {
     order.dispatch_status = status;
-    // Map common gig statuses → our order machine (soft)
     const map = {
       driver_assigned: 'assigned',
       assigned: 'assigned',
@@ -253,7 +291,13 @@ function handleProviderWebhook(providerId, body = {}) {
     order.updated_at = new Date().toISOString().replace('T', ' ').slice(0, 19);
   }
   save(db, data);
-  return { ok: true, provider: providerId, external_id: externalId, order_id: order && order.id, job_id: job && job.id };
+  return {
+    ok: true,
+    provider: providerId,
+    external_id: externalId,
+    order_id: order && order.id,
+    job_id: job && job.id,
+  };
 }
 
 module.exports = {
@@ -261,6 +305,7 @@ module.exports = {
   listProviders,
   listPartnerIntegrations,
   connectProvider,
+  disconnectProvider,
   getDefaultProvider,
   dispatchOrder,
   listJobsForOrder,
