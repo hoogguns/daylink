@@ -95,6 +95,11 @@ const API = {
   partnerDrivers: () => API.request('/api/partner/drivers'),
   partnerEconomics: () => API.request('/api/partner/economics'),
   partnerStatuses: () => API.request('/api/partner/statuses'),
+  partnerIntegrations: () => API.request('/api/partner/integrations'),
+  connectIntegration: (provider, body) =>
+    API.request(`/api/partner/integrations/${provider}/connect`, { method: 'POST', body }),
+  dispatchOrder: (id, body = {}) =>
+    API.request(`/api/partner/orders/${id}/dispatch`, { method: 'POST', body }),
   publicPricing: () => API.request('/api/pricing', { auth: false }),
 
   // driver

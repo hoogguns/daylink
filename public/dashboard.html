@@ -36,6 +36,7 @@
         <a href="#" class="active" data-view="orders">Orders</a>
         <a href="#" data-view="create">New pickup</a>
         <a href="#" data-view="economics">Economics</a>
+        <a href="#" data-view="integrations">Integrations</a>
         <a href="#" data-view="drivers">Drivers</a>
         <a href="#" data-view="api">API key</a>
         <a href="/partners#pricing">Pricing sheet</a>
@@ -100,7 +101,7 @@
               </div>
             </div>
             <p class="text-sm text-muted mt-1" id="m-note">
-              Pure SaaS: you pay subscription (not per-package courier fees). You own drivers, liability, and door checklists.
+              Pure SaaS + platform connectors (Roadie, Shipt, fleet). You own liability and checklists; labor is via integrations you connect.
               <a href="#economics">Open calculator</a>
             </p>
           </div>
@@ -383,6 +384,23 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- INTEGRATIONS VIEW -->
+        <section id="view-integrations" class="hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Driver platform integrations</h2>
+              <span class="chip chip-brand">SaaS connectors</span>
+            </div>
+            <div class="panel-body pad">
+              <p class="text-sm text-muted mb-1">
+                PurCheaper connects your buyback orders to <strong>Roadie</strong>, <strong>Shipt</strong>, and other driver platforms — plus your own fleet.
+                You choose the provider; you and the platform own capacity and liability. We provide the integration, status sync, and checklist/pay-gate layer.
+              </p>
+              <div id="integrations-list" class="stack"></div>
             </div>
           </div>
         </section>

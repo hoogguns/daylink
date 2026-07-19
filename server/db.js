@@ -10,6 +10,8 @@ const EMPTY = () => ({
   order_events: [],
   leads: [],
   checklist_templates: [],
+  partner_integrations: [],
+  dispatch_jobs: [],
 });
 
 function ensureDir(filePath) {

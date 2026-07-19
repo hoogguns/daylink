@@ -2,19 +2,20 @@
 
 ## What we are (MVP)
 
-**PurCheaper is software**, not a courier company.
+**PurCheaper is software**, not a courier company — **with first-class integrations** into driver platforms.
 
 | You provide | Partner owns |
 |-------------|----------------|
-| Multi-tenant order OS | Drivers / gig labor |
-| Dual status (partner + driver) | Device custody & liability |
+| Multi-tenant order OS | Device custody & liability |
+| **Connectors: Roadie, Shipt, Uber Direct (planned), DoorDash Drive (planned), custom webhooks, own fleet** | Commercial relationship + fees with those platforms |
+| Dual status (partner + driver apps) | Outcomes of the physical pickup |
 | Tracking number integration | Carrier labels & postage |
-| Partner-defined door checklists | Grading outcomes |
+| Partner-defined door checklists | Grading rules & disputes |
 | Same-day **pay gate** tools | Seller payment funds |
-| API / dashboard / event log | Customer support to sellers |
+| API / dashboard / event log | Seller support |
 
-Partners pay a **monthly subscription** (with soft order caps + tiny overage).  
-They do **not** pay PurCheaper a logistics fee per phone.
+Partners pay a **monthly SaaS subscription**.  
+They do **not** pay PurCheaper a per-package courier fee — platform labor is billed by Roadie/Shipt/etc. under *their* accounts.
 
 ---
 
@@ -35,13 +36,18 @@ They do **not** pay PurCheaper a logistics fee per phone.
 3. **Tracking** — `tracking_number`, `tracking_carrier`, `tracking_url` (UPS/FedEx/USPS helpers)
 4. **Partner-owned checklists** — templates API; copied onto each order
 5. **Event log** — who changed what (partner vs driver)
-6. **Economics panel** — SaaS bill, not driver COGS
+6. **Driver platform integrations** — Roadie, Shipt (live connectors MVP/mock), Uber Direct & DoorDash Drive planned, manual fleet, custom webhook
+7. **Economics panel** — SaaS bill, not driver COGS
 
 ### API surface (MVP)
 
 ```
 POST /api/partner/orders/:id/status
 POST /api/partner/orders/:id/tracking
+POST /api/partner/orders/:id/dispatch          # Roadie / Shipt / manual / webhook
+GET  /api/partner/integrations
+POST /api/partner/integrations/:provider/connect
+POST /api/integrations/webhooks/:provider     # inbound from platforms
 POST /api/driver/orders/:id/status
 POST /api/driver/orders/:id/tracking
 GET  /api/partner/checklists
@@ -51,10 +57,10 @@ POST /api/partner/checklists
 Typical buyback integration:
 
 1. Create order when quote accepted (`POST /partner/orders`) with `external_ref`
-2. Driver claims / partner assigns
+2. **Dispatch** via Roadie/Shipt/fleet (`POST .../dispatch`) or driver claims in-app
 3. Door checklist completed → `verified` | `mismatch`
 4. Partner releases pay → `paid`
-5. Partner (or driver) posts **their** label tracking → `shipped`
+5. Partner (or driver) posts **parcel** tracking → `shipped`
 6. Optional status to `delivered` when buyback receives unit
 
 ---

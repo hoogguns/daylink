@@ -260,6 +260,25 @@
               </div>`
             : ''
         }
+        <div class="card" style="padding:.65rem;box-shadow:none">
+          <div class="text-sm mb-1"><strong>Dispatch integration</strong>
+            <span class="text-muted">Roadie · Shipt · fleet · webhook</span>
+          </div>
+          <div class="text-sm mb-1">
+            Provider: <strong>${escapeHtml(order.dispatch_provider || '—')}</strong>
+            · Ext ID: <span class="mono">${escapeHtml(order.dispatch_external_id || '—')}</span>
+            · ${statusChip(order.dispatch_status || 'none')}
+          </div>
+          <div class="row">
+            <select id="dsp-provider" style="flex:1;min-height:40px;border:1px solid var(--line);border-radius:8px;padding:.4rem">
+              <option value="roadie">Roadie</option>
+              <option value="shipt">Shipt</option>
+              <option value="manual">Manual / own fleet</option>
+              <option value="custom_webhook">Custom webhook</option>
+            </select>
+            <button class="btn btn-soft btn-sm" type="button" id="act-dispatch">Send to platform</button>
+          </div>
+        </div>
         <div class="row">${actions.join('')}</div>
         <div>
           <div class="text-sm mb-1"><strong>Event log</strong></div>
@@ -298,6 +317,16 @@
           tracking_url: $('#trk-url').value || null,
           mark_shipped: $('#trk-shipped').checked,
         });
+        await refreshAll();
+        await showDetail(order.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    $('#act-dispatch')?.addEventListener('click', async () => {
+      try {
+        const res = await API.dispatchOrder(order.id, { provider: $('#dsp-provider').value });
+        alert(res.message || 'Dispatched');
         await refreshAll();
         await showDetail(order.id);
       } catch (err) {
@@ -463,12 +492,14 @@
     $('#view-drivers').classList.toggle('hidden', name !== 'drivers');
     $('#view-api').classList.toggle('hidden', name !== 'api');
     if ($('#view-economics')) $('#view-economics').classList.toggle('hidden', name !== 'economics');
+    if ($('#view-integrations')) $('#view-integrations').classList.toggle('hidden', name !== 'integrations');
     const titles = {
       orders: 'Purchased devices',
       create: 'New pickup',
       drivers: 'Driver network',
       api: 'API access',
       economics: 'Pricing & unit economics',
+      integrations: 'Driver platform integrations',
     };
     $('#view-title').textContent = titles[name] || 'Dashboard';
     if (name === 'drivers') loadDrivers();
@@ -480,12 +511,75 @@
       runEconomics();
       loadEconomicsLive();
     }
+    if (name === 'integrations') loadIntegrations();
     // Profit strip visible on main ops views
     if ($('#profit-panel')) {
-      $('#profit-panel').classList.toggle('hidden', name === 'create' || name === 'api');
+      $('#profit-panel').classList.toggle(
+        'hidden',
+        name === 'create' || name === 'api' || name === 'integrations'
+      );
     }
     if ($('#stats-row')) {
-      $('#stats-row').classList.toggle('hidden', name === 'economics' || name === 'create' || name === 'api');
+      $('#stats-row').classList.toggle(
+        'hidden',
+        name === 'economics' || name === 'create' || name === 'api' || name === 'integrations'
+      );
+    }
+  }
+
+  async function loadIntegrations() {
+    const el = $('#integrations-list');
+    if (!el) return;
+    try {
+      const { integrations, note } = await API.partnerIntegrations();
+      el.innerHTML = `<p class="text-sm text-muted">${escapeHtml(note || '')}</p>` +
+        integrations
+          .map((p) => {
+            const badge =
+              p.status === 'available'
+                ? '<span class="chip chip-good">Available</span>'
+                : '<span class="chip chip-warn">Planned</span>';
+            const conn = p.connected
+              ? `<span class="chip chip-brand">Connected${p.connection && p.connection.default ? ' · default' : ''}</span>`
+              : '<span class="chip">Not connected</span>';
+            return `<article class="card">
+              <div class="row between mb-1">
+                <h3 style="margin:0">${escapeHtml(p.name)}</h3>
+                <div class="row">${badge}${conn}</div>
+              </div>
+              <p class="text-sm text-muted">${escapeHtml(p.description)}</p>
+              <p class="text-sm mt-1">Supports: ${(p.supports || []).map(escapeHtml).join(', ')}</p>
+              <div class="row mt-1">
+                ${
+                  p.status === 'available'
+                    ? `<button type="button" class="btn btn-primary btn-sm" data-connect="${p.id}">${p.connected ? 'Update connection' : 'Connect'}</button>
+                       ${p.connected ? '' : ''}`
+                    : `<button type="button" class="btn btn-ghost btn-sm" disabled>Coming soon</button>`
+                }
+                ${p.docs_url ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(p.docs_url)}" target="_blank" rel="noopener">Docs</a>` : ''}
+              </div>
+            </article>`;
+          })
+          .join('');
+      el.querySelectorAll('[data-connect]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const provider = btn.getAttribute('data-connect');
+          const api_key = provider === 'manual' ? '' : prompt('API key / token (stored for this pilot demo):', 'demo-key') || 'demo-key';
+          const is_default = confirm('Set as default dispatch provider for new jobs?');
+          try {
+            await API.connectIntegration(provider, {
+              api_key: api_key || null,
+              is_default,
+              external_account: provider + '-account',
+            });
+            await loadIntegrations();
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
     }
   }
 

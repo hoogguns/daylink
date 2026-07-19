@@ -16,8 +16,9 @@ const {
 } = require('../services/orders');
 const { ACTOR_STATUSES } = require('../services/status');
 const checklists = require('../services/checklists');
+const dispatch = require('../services/dispatch');
 const { getDb } = require('../db');
-const { PLANS, COGS, cogsPerPickup } = require('../config/pricing');
+const { PLANS, COGS } = require('../config/pricing');
 
 const router = express.Router();
 
@@ -313,6 +314,87 @@ router.get('/partner/drivers', requirePartner, (req, res) => {
     .all()
     .map((d) => ({ ...d, zones: JSON.parse(d.zones || '[]'), trained: !!d.trained }));
   res.json({ drivers });
+});
+
+// ── Driver platform integrations (Roadie, Shipt, …) ────────────────
+
+router.get('/partner/integrations', requirePartner, (req, res) => {
+  res.json({
+    model: 'saas_connectors',
+    note: 'PurCheaper integrates with gig platforms; you choose the provider. Liability follows partner + platform terms.',
+    integrations: dispatch.listPartnerIntegrations(req.user.id),
+  });
+});
+
+router.post('/partner/integrations/:provider/connect', requirePartner, (req, res) => {
+  try {
+    const integration = dispatch.connectProvider(req.user.id, req.params.provider, req.body || {});
+    res.json({ integration, message: `${integration.name} connected` });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/** Send order to Roadie / Shipt / manual / custom webhook (MVP mock job id) */
+router.post('/partner/orders/:id/dispatch', requirePartner, (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order || order.partner_id !== req.user.id) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  try {
+    const result = dispatch.dispatchOrder(order, req.user.id, req.body || {});
+    // log via status service path — soft event
+    const db = getDb();
+    const { v4: uuid } = require('uuid');
+    db.prepare(
+      `INSERT INTO order_events (id, order_id, actor_type, actor_id, event, detail)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      uuid(),
+      order.id,
+      'partner',
+      req.user.id,
+      'dispatched',
+      JSON.stringify({
+        provider: result.provider.id,
+        external_id: result.job.external_id,
+        mock: result.job.mock,
+      })
+    );
+    const updated = getOrderById(order.id);
+    res.status(201).json({
+      order: updated,
+      dispatch: result.job,
+      provider: result.provider,
+      message: result.message,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/partner/orders/:id/dispatch', requirePartner, (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order || order.partner_id !== req.user.id) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  res.json({
+    order_id: order.id,
+    dispatch_provider: order.dispatch_provider || null,
+    dispatch_external_id: order.dispatch_external_id || null,
+    dispatch_status: order.dispatch_status || null,
+    jobs: dispatch.listJobsForOrder(order.id),
+  });
+});
+
+/** Public webhook intake for platform callbacks (auth in production via secrets) */
+router.post('/integrations/webhooks/:provider', (req, res) => {
+  try {
+    const result = dispatch.handleProviderWebhook(req.params.provider, req.body || {});
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
