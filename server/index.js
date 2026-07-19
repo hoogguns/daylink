@@ -7,8 +7,8 @@ const morgan = require('morgan');
 const { getDb } = require('./db');
 
 // ensure DB + schema; auto-seed empty store for launch demos
-getDb();
 try {
+  getDb();
   const count = getDb().prepare('SELECT COUNT(*) AS c FROM partners').get().c;
   if (count === 0) {
     console.log('  Empty database — running seed…');
@@ -68,9 +68,18 @@ app.use(
 );
 
 function sendApp(file) {
-  return (_req, res) => res.sendFile(path.join(publicDir, file));
+  return (_req, res) => {
+    const filePath = path.join(publicDir, file);
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).sendFile(path.join(publicDir, '404.html'));
+    }
+  };
 }
 
+// Named page routes — every public HTML page needs an explicit route
+app.get('/login', sendApp('login.html'));
 app.get('/dashboard', sendApp('dashboard.html'));
 app.get('/dashboard/{*rest}', sendApp('dashboard.html'));
 app.get('/drivers', sendApp('drivers.html'));
@@ -109,6 +118,7 @@ app.listen(PORT, () => {
   console.log(`  Market:  Ogden → Salt Lake City → Provo`);
   console.log(`  Mode:    ${process.env.NODE_ENV || 'development'}`);
   console.log(`  Local:   http://localhost:${PORT}`);
+  console.log(`  Login:   http://localhost:${PORT}/login`);
   console.log(`  Partner: http://localhost:${PORT}/dashboard`);
   console.log(`  Driver:  http://localhost:${PORT}/drivers`);
   console.log(`  Launch:  http://localhost:${PORT}/launch`);
