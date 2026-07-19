@@ -1,57 +1,81 @@
 /**
- * Wasatch pilot pricing + estimated PurCheaper COGS.
- * Partner fee = PurCheaper revenue. COGS = driver + supplies + risk reserve.
+ * PurCheaper — pure SaaS subscription pricing (MVP).
+ * Partners run their own logistics/liability; they pay for the software platform.
+ * No per-pickup fees as the primary model.
  */
 const PLANS = {
   starter: {
     id: 'starter',
     name: 'Starter',
-    monthly: 0,
-    perPickup: 29,
-    sameDayFee: 4,
-    sameDayIncluded: false,
-    cap: 50,
+    monthly: 99,
+    annual: 990,
+    included_orders: 200,
+    overage_per_order: 0.25,
+    seats: 3,
+    api: true,
+    custom_checklists: 2,
+    webhooks: false,
+    tracking: true,
+    dual_status: true,
+    same_day_pay_tools: true,
+    support: 'Email (business hours MT)',
   },
   growth: {
     id: 'growth',
     name: 'Growth',
-    monthly: 149,
-    perPickup: 24,
-    sameDayFee: 0,
-    sameDayIncluded: true,
-    cap: 300,
+    monthly: 249,
+    annual: 2490,
+    included_orders: 1500,
+    overage_per_order: 0.15,
+    seats: 15,
+    api: true,
+    custom_checklists: 25,
+    webhooks: true,
+    tracking: true,
+    dual_status: true,
+    same_day_pay_tools: true,
+    support: 'Priority email + Slack',
   },
   network: {
     id: 'network',
     name: 'Network',
-    monthly: 499,
-    perPickup: 20,
-    sameDayFee: 0,
-    sameDayIncluded: true,
-    cap: null,
+    monthly: 699,
+    annual: 6990,
+    included_orders: 10000,
+    overage_per_order: 0.08,
+    seats: 100,
+    api: true,
+    custom_checklists: null, // unlimited
+    webhooks: true,
+    tracking: true,
+    dual_status: true,
+    same_day_pay_tools: true,
+    sso: true,
+    support: 'Dedicated success',
   },
   pilot: {
     id: 'pilot',
-    name: 'Pilot (Growth rates)',
-    monthly: 149,
-    perPickup: 24,
-    sameDayFee: 0,
-    sameDayIncluded: true,
-    cap: 300,
+    name: 'Pilot (Growth)',
+    monthly: 0,
+    annual: 0,
+    included_orders: 500,
+    overage_per_order: 0,
+    seats: 10,
+    api: true,
+    custom_checklists: 10,
+    webhooks: true,
+    tracking: true,
+    dual_status: true,
+    same_day_pay_tools: true,
+    support: 'Pilot success',
   },
 };
 
-/** Estimated fully loaded cost to PurCheaper per completed pickup (Wasatch, nearby parcel drop). */
-const COGS = {
-  driver: Number(process.env.COGS_DRIVER || 20),
-  supplies: Number(process.env.COGS_SUPPLIES || 2.5),
-  risk: Number(process.env.COGS_RISK || 1.5),
-  ops: Number(process.env.COGS_OPS || 3),
+/** Platform COGS is software hosting — not driver labor (partners own logistics). */
+const PLATFORM_COGS = {
+  hosting_per_partner_mo: Number(process.env.SAAS_HOSTING_COGS || 8),
+  support_per_partner_mo: Number(process.env.SAAS_SUPPORT_COGS || 15),
 };
-
-function cogsPerPickup() {
-  return COGS.driver + COGS.supplies + COGS.risk + COGS.ops;
-}
 
 function resolvePlan(planId) {
   const key = String(planId || 'growth').toLowerCase();
@@ -59,51 +83,59 @@ function resolvePlan(planId) {
 }
 
 /**
- * @param {object} opts
- * @param {string} opts.planId
- * @param {number} opts.completedPickups - device collected (picked_up+ or terminal success/mismatch)
- * @param {number} opts.sameDayPays - paid same-day count
- * @param {boolean} [opts.includeMonthly=true]
+ * SaaS invoice for a period: subscription + optional overage only.
  */
-function estimateInvoice({ planId, completedPickups, sameDayPays, includeMonthly = true }) {
+function estimateInvoice({ planId, completedPickups, includeMonthly = true }) {
   const plan = resolvePlan(planId);
-  const pickups = Math.max(0, Number(completedPickups) || 0);
-  const pays = Math.max(0, Number(sameDayPays) || 0);
-  const pickupFees = pickups * plan.perPickup;
-  const sameDayFees = plan.sameDayIncluded ? 0 : pays * plan.sameDayFee;
-  const monthly = includeMonthly ? plan.monthly : 0;
-  const total = monthly + pickupFees + sameDayFees;
+  const orders = Math.max(0, Number(completedPickups) || 0);
+  const included = plan.included_orders == null ? orders : plan.included_orders;
+  const overageUnits = Math.max(0, orders - included);
+  const overage = overageUnits * (plan.overage_per_order || 0);
+  const platform = includeMonthly ? plan.monthly : 0;
+  const total = platform + overage;
   return {
     plan,
-    pickups,
-    same_day_pays: pays,
-    platform_fee: monthly,
-    pickup_fees: pickupFees,
-    same_day_fees: sameDayFees,
+    model: 'saas_subscription',
+    orders_in_period: orders,
+    included_orders: plan.included_orders,
+    overage_orders: overageUnits,
+    platform_fee: platform,
+    overage_fees: overage,
+    pickup_fees: 0,
+    same_day_fees: 0,
     total,
-    blended_per_pickup: pickups > 0 ? total / pickups : plan.perPickup,
+    blended_per_order: orders > 0 ? total / orders : null,
   };
 }
 
 function estimateOperatorMargin(invoice) {
-  const cogsUnit = cogsPerPickup();
-  const cogsTotal = invoice.pickups * cogsUnit;
+  const cogsTotal =
+    PLATFORM_COGS.hosting_per_partner_mo + PLATFORM_COGS.support_per_partner_mo;
   const revenue = invoice.total;
   const contribution = revenue - cogsTotal;
   return {
-    cogs: COGS,
-    cogs_per_pickup: cogsUnit,
+    model: 'saas',
+    cogs: PLATFORM_COGS,
+    cogs_per_pickup: null,
     cogs_total: cogsTotal,
     revenue,
     contribution,
-    contribution_per_pickup: invoice.pickups > 0 ? contribution / invoice.pickups : null,
+    contribution_per_pickup: null,
     margin_pct: revenue > 0 ? (contribution / revenue) * 100 : null,
+    note: 'SaaS margin: subscription (+ overage) minus platform hosting/support allocation. Drivers & liability are partner-owned.',
   };
+}
+
+// Back-compat aliases used by older routes
+const COGS = PLATFORM_COGS;
+function cogsPerPickup() {
+  return 0;
 }
 
 module.exports = {
   PLANS,
   COGS,
+  PLATFORM_COGS,
   cogsPerPickup,
   resolvePlan,
   estimateInvoice,

@@ -7,11 +7,15 @@ const {
   getEvents,
   assignDriver,
   updateStatus,
+  updateTracking,
   verifyDevice,
   processPayment,
   partnerStats,
   partnerEconomics,
+  STATUSES,
 } = require('../services/orders');
+const { ACTOR_STATUSES } = require('../services/status');
+const checklists = require('../services/checklists');
 const { getDb } = require('../db');
 const { PLANS, COGS, cogsPerPickup } = require('../config/pricing');
 
@@ -32,7 +36,43 @@ router.get('/partner/economics', requirePartner, (req, res) => {
 });
 
 router.get('/partner/pricing', requirePartner, (_req, res) => {
-  res.json({ plans: PLANS, cogs_defaults: COGS, cogs_per_pickup: cogsPerPickup() });
+  res.json({
+    model: 'saas_subscription',
+    plans: PLANS,
+    platform_cogs: COGS,
+    note: 'Pure SaaS — partners own drivers, liability, and door grading checklists.',
+  });
+});
+
+router.get('/partner/statuses', requirePartner, (_req, res) => {
+  res.json({
+    all: STATUSES,
+    partner_can_set: ACTOR_STATUSES.partner,
+    driver_can_set: ACTOR_STATUSES.driver,
+  });
+});
+
+// Checklists (partner-owned grading)
+router.get('/partner/checklists', requirePartner, (req, res) => {
+  res.json({ checklists: checklists.listTemplates(req.user.id) });
+});
+
+router.post('/partner/checklists', requirePartner, (req, res) => {
+  try {
+    const tpl = checklists.createTemplate(req.user.id, req.body || {});
+    res.status(201).json({ checklist: tpl });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.patch('/partner/checklists/:id', requirePartner, (req, res) => {
+  try {
+    const tpl = checklists.updateTemplate(req.user.id, req.params.id, req.body || {});
+    res.json({ checklist: tpl });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 router.get('/partner/orders', requirePartner, (req, res) => {
@@ -87,7 +127,53 @@ router.get('/partner/orders/:id', requirePartner, (req, res) => {
     return res.status(404).json({ error: 'Order not found' });
   }
   const events = getEvents(order.id);
-  res.json({ order, events });
+  res.json({
+    order,
+    events,
+    actions: {
+      can_set_status: ACTOR_STATUSES.partner,
+      can_update_tracking: true,
+      can_pay: order.status === 'verified' && !order.paid,
+    },
+  });
+});
+
+/** Partner status update (ops / buyback backend / support) */
+router.post('/partner/orders/:id/status', requirePartner, (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order || order.partner_id !== req.user.id) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  const { status, notes, cancel_reason } = req.body || {};
+  if (!status) return res.status(400).json({ error: 'status required' });
+  try {
+    const updated = updateStatus(
+      order.id,
+      status,
+      { type: 'partner', id: req.user.id },
+      { notes, cancel_reason }
+    );
+    res.json({ order: updated, message: `Status set to ${status}` });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * Partner tracking integration — push buyback label / carrier tracking number.
+ * Body: { tracking_number, tracking_carrier, tracking_url?, mark_shipped? }
+ */
+router.post('/partner/orders/:id/tracking', requirePartner, (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order || order.partner_id !== req.user.id) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  try {
+    const updated = updateTracking(order.id, { type: 'partner', id: req.user.id }, req.body || {});
+    res.json({ order: updated, message: 'Tracking updated' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 router.post('/partner/orders/:id/pay', requirePartner, (req, res) => {
@@ -104,7 +190,7 @@ router.post('/partner/orders/:id/cancel', requirePartner, (req, res) => {
   if (!order || order.partner_id !== req.user.id) {
     return res.status(404).json({ error: 'Order not found' });
   }
-  if (['paid', 'cancelled'].includes(order.status)) {
+  if (['delivered', 'cancelled'].includes(order.status)) {
     return res.status(400).json({ error: 'Cannot cancel this order' });
   }
   try {
@@ -141,7 +227,7 @@ router.get('/driver/orders', requireAuth('driver'), (req, res) => {
   const mine = listOrders({ driverId: req.user.id, limit: 100 });
   const open = listOrders({ status: 'pending', limit: 50 });
   res.json({
-    assigned: mine.orders.filter((o) => !['paid', 'cancelled'].includes(o.status)),
+    assigned: mine.orders.filter((o) => !['paid', 'cancelled', 'delivered'].includes(o.status)),
     available: open.orders,
   });
 });
@@ -149,7 +235,6 @@ router.get('/driver/orders', requireAuth('driver'), (req, res) => {
 router.post('/driver/orders/:id/claim', requireAuth('driver'), (req, res) => {
   try {
     const updated = assignDriver(req.params.id, req.user.id, { type: 'driver', id: req.user.id });
-    // mark en_route optionally via body
     if (req.body && req.body.start_route) {
       const r = updateStatus(updated.id, 'en_route', { type: 'driver', id: req.user.id });
       return res.json({ order: r });
@@ -166,14 +251,26 @@ router.post('/driver/orders/:id/status', requireAuth('driver'), (req, res) => {
   if (order.driver_id !== req.user.id) {
     return res.status(403).json({ error: 'Not your order' });
   }
-  const { status } = req.body || {};
-  const allowed = ['en_route', 'picked_up', 'verifying'];
-  if (!allowed.includes(status)) {
-    return res.status(400).json({ error: `Driver may set status to: ${allowed.join(', ')}` });
+  const { status, notes } = req.body || {};
+  if (!status) return res.status(400).json({ error: 'status required' });
+  try {
+    const updated = updateStatus(order.id, status, { type: 'driver', id: req.user.id }, { notes });
+    res.json({ order: updated });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/** Driver can attach last-mile / parcel tracking after drop */
+router.post('/driver/orders/:id/tracking', requireAuth('driver'), (req, res) => {
+  const order = getOrderById(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.driver_id !== req.user.id) {
+    return res.status(403).json({ error: 'Not your order' });
   }
   try {
-    const updated = updateStatus(order.id, status, { type: 'driver', id: req.user.id });
-    res.json({ order: updated });
+    const updated = updateTracking(order.id, { type: 'driver', id: req.user.id }, req.body || {});
+    res.json({ order: updated, message: 'Tracking updated' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -185,7 +282,7 @@ router.post('/driver/orders/:id/verify', requireAuth('driver'), (req, res) => {
     res.json({
       order,
       message: order.verification_match
-        ? 'Device matches specs — eligible for same-day payment'
+        ? 'Checklist passed — partner may release same-day payment'
         : 'Mismatch recorded — partner review required before payment',
     });
   } catch (err) {
@@ -199,10 +296,12 @@ router.get('/driver/orders/:id', requireAuth('driver'), (req, res) => {
   if (order.driver_id !== req.user.id && order.status !== 'pending') {
     return res.status(403).json({ error: 'Not your order' });
   }
-  res.json({ order, events: getEvents(order.id) });
+  res.json({
+    order,
+    events: getEvents(order.id),
+    actions: { can_set_status: ACTOR_STATUSES.driver, can_update_tracking: true },
+  });
 });
-
-// ── Shared lookup (drivers list for assign) ────────────────────────
 
 router.get('/partner/drivers', requirePartner, (req, res) => {
   const db = getDb();

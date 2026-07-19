@@ -1,18 +1,8 @@
 const { v4: uuid } = require('uuid');
 const { getDb } = require('../db');
 const { resolvePlan, estimateInvoice, estimateOperatorMargin, PLANS, COGS } = require('../config/pricing');
-
-const STATUSES = [
-  'pending',
-  'assigned',
-  'en_route',
-  'picked_up',
-  'verifying',
-  'verified',
-  'paid',
-  'mismatch',
-  'cancelled',
-];
+const { STATUSES, canTransition, trackingUrl } = require('./status');
+const checklists = require('./checklists');
 
 function logEvent(db, orderId, event, detail, actorType = 'system', actorId = null) {
   db.prepare(
@@ -31,6 +21,7 @@ function parseOrder(row) {
     ...row,
     expected_specs: safeJson(row.expected_specs),
     verified_specs: safeJson(row.verified_specs),
+    door_checklist: safeJson(row.door_checklist),
     packed: !!row.packed,
     paid: !!row.paid,
     verification_match: row.verification_match === null ? null : !!row.verification_match,
@@ -66,6 +57,25 @@ function createOrder(partnerId, data) {
           }
         );
 
+  const checklistTpl =
+    data.checklist_template_id
+      ? checklists.getTemplate(partnerId, data.checklist_template_id)
+      : checklists.defaultForPartner(partnerId);
+  const doorChecklist = JSON.stringify(
+    data.door_checklist || {
+      template_id: checklistTpl ? checklistTpl.id : null,
+      template_name: checklistTpl ? checklistTpl.name : 'Default',
+      fields: checklistTpl ? checklistTpl.fields : checklists.DEFAULT_FIELDS,
+      // Partner owns grading rules — PurCheaper only stores results
+      owned_by: 'partner',
+    }
+  );
+
+  const trackNum = data.tracking_number || null;
+  const trackCarrier = data.tracking_carrier || null;
+  const trackUrl = data.tracking_url || trackingUrl(trackCarrier, trackNum);
+
+  // Named insert path (JSON store) — includes SaaS tracking + checklist fields
   db.prepare(
     `INSERT INTO orders (
       id, partner_id, external_ref, status,
@@ -73,42 +83,59 @@ function createOrder(partnerId, data) {
       pickup_address, pickup_city, pickup_zip, pickup_lat, pickup_lng,
       device_brand, device_model, device_storage, device_color, device_condition,
       imei, serial_number, quoted_amount, currency, expected_specs,
-      window_start, window_end
+      window_start, window_end, tracking_number, tracking_carrier, tracking_url,
+      door_checklist, checklist_template_id
     ) VALUES (
-      ?, ?, ?, 'pending',
-      ?, ?, ?,
-      ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?,
-      ?, ?
+      @id, @partner_id, @external_ref, @status,
+      @seller_name, @seller_phone, @seller_email,
+      @pickup_address, @pickup_city, @pickup_zip, @pickup_lat, @pickup_lng,
+      @device_brand, @device_model, @device_storage, @device_color, @device_condition,
+      @imei, @serial_number, @quoted_amount, @currency, @expected_specs,
+      @window_start, @window_end, @tracking_number, @tracking_carrier, @tracking_url,
+      @door_checklist, @checklist_template_id
     )`
-  ).run(
+  ).run({
     id,
-    partnerId,
-    data.external_ref || null,
-    data.seller_name,
-    data.seller_phone,
-    data.seller_email || null,
-    data.pickup_address,
-    data.pickup_city,
-    data.pickup_zip,
-    data.pickup_lat || null,
-    data.pickup_lng || null,
-    data.device_brand,
-    data.device_model,
-    data.device_storage || null,
-    data.device_color || null,
-    data.device_condition,
-    data.imei || null,
-    data.serial_number || null,
-    data.quoted_amount,
-    data.currency || 'USD',
-    expected,
-    data.window_start || null,
-    data.window_end || null
-  );
+    partner_id: partnerId,
+    external_ref: data.external_ref || null,
+    status: 'pending',
+    seller_name: data.seller_name,
+    seller_phone: data.seller_phone,
+    seller_email: data.seller_email || null,
+    pickup_address: data.pickup_address,
+    pickup_city: data.pickup_city,
+    pickup_zip: data.pickup_zip,
+    pickup_lat: data.pickup_lat || null,
+    pickup_lng: data.pickup_lng || null,
+    device_brand: data.device_brand,
+    device_model: data.device_model,
+    device_storage: data.device_storage || null,
+    device_color: data.device_color || null,
+    device_condition: data.device_condition,
+    imei: data.imei || null,
+    serial_number: data.serial_number || null,
+    quoted_amount: data.quoted_amount,
+    currency: data.currency || 'USD',
+    expected_specs: expected,
+    window_start: data.window_start || null,
+    window_end: data.window_end || null,
+    tracking_number: trackNum,
+    tracking_carrier: trackCarrier,
+    tracking_url: trackUrl,
+    door_checklist: doorChecklist,
+    checklist_template_id: checklistTpl ? checklistTpl.id : null,
+    packed: 0,
+    paid: 0,
+  });
 
-  logEvent(db, id, 'created', { external_ref: data.external_ref, quoted_amount: data.quoted_amount }, 'partner', partnerId);
+  logEvent(
+    db,
+    id,
+    'created',
+    { external_ref: data.external_ref, quoted_amount: data.quoted_amount, checklist: checklistTpl && checklistTpl.name },
+    'partner',
+    partnerId
+  );
   return getOrderById(id);
 }
 
@@ -204,19 +231,80 @@ function updateStatus(orderId, status, actor = {}, extra = {}) {
   const order = getOrderById(orderId);
   if (!order) throw Object.assign(new Error('Order not found'), { status: 404 });
 
-  const sets = ['status = ?'];
-  const vals = [status];
+  const actorType = actor.type || 'system';
+  const gate = canTransition(order.status, status, actorType);
+  if (!gate.ok) {
+    throw Object.assign(new Error(gate.reason), { status: 400 });
+  }
+
+  // Mutate via JSON store: load row and write fields
+  const data = db._data();
+  const row = data.orders.find((o) => o.id === orderId);
+  if (!row) throw Object.assign(new Error('Order not found'), { status: 404 });
+
+  const prev = row.status;
+  row.status = status;
+  row.updated_at = new Date().toISOString().replace('T', ' ').slice(0, 19);
   if (extra.packed != null) {
-    sets.push('packed = ?', "packed_at = datetime('now')");
-    vals.push(extra.packed ? 1 : 0);
+    row.packed = extra.packed ? 1 : 0;
+    if (extra.packed) row.packed_at = row.updated_at;
   }
-  if (extra.cancel_reason) {
-    sets.push('cancel_reason = ?');
-    vals.push(extra.cancel_reason);
+  if (extra.cancel_reason) row.cancel_reason = extra.cancel_reason;
+  if (extra.notes) row.status_notes = extra.notes;
+
+  if (typeof db._replace === 'function') db._replace(data);
+
+  logEvent(
+    db,
+    orderId,
+    'status_change',
+    { from: prev, status, soft: !!gate.soft, ...extra },
+    actorType,
+    actor.id || null
+  );
+  return getOrderById(orderId);
+}
+
+/**
+ * Partner or driver attaches carrier tracking (UPS/FedEx/USPS/etc.).
+ * Partners typically push their buyback label / outbound tracking here via API.
+ */
+function updateTracking(orderId, actor, payload = {}) {
+  const db = getDb();
+  const order = getOrderById(orderId);
+  if (!order) throw Object.assign(new Error('Order not found'), { status: 404 });
+
+  const data = db._data();
+  const row = data.orders.find((o) => o.id === orderId);
+  if (!row) throw Object.assign(new Error('Order not found'), { status: 404 });
+
+  const number = payload.tracking_number != null ? String(payload.tracking_number).trim() : row.tracking_number;
+  const carrier = payload.tracking_carrier != null ? String(payload.tracking_carrier).trim() : row.tracking_carrier;
+  const url =
+    payload.tracking_url != null
+      ? String(payload.tracking_url).trim()
+      : trackingUrl(carrier, number) || row.tracking_url;
+
+  row.tracking_number = number || null;
+  row.tracking_carrier = carrier || null;
+  row.tracking_url = url || null;
+  row.updated_at = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  if (typeof db._replace === 'function') db._replace(data);
+
+  logEvent(
+    db,
+    orderId,
+    'tracking_updated',
+    { tracking_number: row.tracking_number, tracking_carrier: row.tracking_carrier, tracking_url: row.tracking_url },
+    actor.type || 'system',
+    actor.id || null
+  );
+
+  // Optional: auto-advance when partner ships
+  if (payload.mark_shipped && ['verified', 'paid', 'picked_up', 'mismatch'].includes(row.status)) {
+    return updateStatus(orderId, 'shipped', actor, { notes: 'Auto from tracking' });
   }
-  vals.push(orderId);
-  db.prepare(`UPDATE orders SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...vals);
-  logEvent(db, orderId, 'status_change', { status, ...extra }, actor.type || 'system', actor.id || null);
+
   return getOrderById(orderId);
 }
 
@@ -468,6 +556,7 @@ module.exports = {
   getEvents,
   assignDriver,
   updateStatus,
+  updateTracking,
   verifyDevice,
   processPayment,
   partnerStats,

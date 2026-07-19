@@ -114,14 +114,19 @@
     const expected = order.expected_specs || {};
 
     const statusBtns = [];
-    if (['assigned', 'en_route'].includes(order.status)) {
-      if (order.status === 'assigned') {
-        statusBtns.push(`<button class="btn btn-soft btn-sm" data-st="en_route" type="button">Start route</button>`);
+    const driverFlow = [
+      ['assigned', 'en_route', 'Start route'],
+      ['en_route', 'picked_up', 'Mark picked up'],
+      ['picked_up', 'verifying', 'Start verifying'],
+      ['verified', 'shipped', 'Mark parcel dropped'],
+    ];
+    for (const [from, to, label] of driverFlow) {
+      if (order.status === from) {
+        statusBtns.push(`<button class="btn btn-soft btn-sm" data-st="${to}" type="button">${label}</button>`);
       }
-      statusBtns.push(`<button class="btn btn-primary btn-sm" data-st="picked_up" type="button">Mark picked up</button>`);
     }
-    if (order.status === 'picked_up' || order.status === 'verifying') {
-      statusBtns.push(`<button class="btn btn-ghost btn-sm" data-st="verifying" type="button">Start verifying</button>`);
+    if (['picked_up', 'verifying'].includes(order.status)) {
+      statusBtns.push(`<button class="btn btn-ghost btn-sm" data-st="verifying" type="button">Verifying</button>`);
     }
 
     const canVerify = ['picked_up', 'verifying'].includes(order.status);
@@ -143,10 +148,32 @@
           <pre class="mono text-sm" style="margin:.25rem 0 0;white-space:pre-wrap;background:var(--canvas);padding:.5rem;border-radius:6px">${escapeHtml(JSON.stringify(expected, null, 2))}</pre>
         </div>
         <div class="row">${statusBtns.join('')}</div>
+        <div class="card" style="padding:.65rem;box-shadow:none">
+          <div class="text-sm mb-1"><strong>Parcel tracking</strong></div>
+          <div class="form-grid">
+            <label class="field">Carrier
+              <select id="d-trk-carrier">
+                <option value="">Select…</option>
+                <option>UPS</option><option>FedEx</option><option>USPS</option><option>DHL</option><option>Other</option>
+              </select>
+            </label>
+            <label class="field">Tracking #
+              <input id="d-trk-number" class="mono" value="${escapeHtml(order.tracking_number || '')}" />
+            </label>
+          </div>
+          <button class="btn btn-ghost btn-sm mt-1" type="button" id="d-trk-save">Save tracking</button>
+          ${order.tracking_url ? `<a class="text-sm" href="${escapeHtml(order.tracking_url)}" target="_blank" rel="noopener">Track package</a>` : ''}
+        </div>
+        ${
+          order.door_checklist
+            ? `<div><div class="text-sm"><strong>Partner door checklist</strong></div>
+               <pre class="mono text-sm" style="margin:.25rem 0 0;white-space:pre-wrap;background:var(--canvas);padding:.5rem;border-radius:6px">${escapeHtml(JSON.stringify(order.door_checklist, null, 2))}</pre></div>`
+            : ''
+        }
         ${
           canVerify
             ? `<form id="verify-form" class="stack" style="border-top:1px solid var(--line);padding-top:.7rem">
-                <strong class="text-sm">On-site verification</strong>
+                <strong class="text-sm">On-site verification (partner checklist)</strong>
                 <div class="form-grid">
                   <label class="field">Observed brand<input name="brand" value="${escapeHtml(expected.brand || order.device_brand || '')}" required /></label>
                   <label class="field">Observed model<input name="model" value="${escapeHtml(expected.model || order.device_model || '')}" required /></label>
@@ -199,6 +226,22 @@
         }
       });
     });
+    const trkSave = $('#d-trk-save');
+    if (trkSave) {
+      trkSave.addEventListener('click', async () => {
+        try {
+          await API.driverTracking(order.id, {
+            tracking_carrier: $('#d-trk-carrier').value || null,
+            tracking_number: $('#d-trk-number').value || null,
+            mark_shipped: true,
+          });
+          await refresh();
+          await openJob(order.id);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    }
 
     const form = $('#verify-form');
     if (form) {

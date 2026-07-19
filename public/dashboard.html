@@ -79,28 +79,28 @@
           <div class="panel-body pad">
             <div class="stat-row" style="grid-template-columns:repeat(2,1fr);margin:0">
               <div class="stat" style="box-shadow:none">
-                <div class="label">Your PurCheaper spend</div>
+                <div class="label">Your SaaS bill</div>
                 <div class="value" id="m-invoice">—</div>
-                <div class="sub" id="m-invoice-sub">Est. invoice (plan rates)</div>
+                <div class="sub" id="m-invoice-sub">Subscription + overage</div>
               </div>
               <div class="stat" style="box-shadow:none">
-                <div class="label">PurCheaper profit (est.)</div>
+                <div class="label">PurCheaper margin (est.)</div>
                 <div class="value" id="m-profit">—</div>
-                <div class="sub" id="m-profit-sub">Invoice − COGS on your jobs</div>
+                <div class="sub" id="m-profit-sub">SaaS revenue − platform COGS</div>
               </div>
               <div class="stat" style="box-shadow:none">
-                <div class="label">Completed pickups</div>
+                <div class="label">Orders on platform</div>
                 <div class="value" id="m-pickups">—</div>
-                <div class="sub" id="m-pickups-sub">Billable this month</div>
+                <div class="sub" id="m-pickups-sub">This month</div>
               </div>
               <div class="stat" style="box-shadow:none">
-                <div class="label">Margin / pickup</div>
+                <div class="label">SaaS margin %</div>
                 <div class="value" id="m-unit">—</div>
-                <div class="sub" id="m-unit-sub">Contribution after COGS</div>
+                <div class="sub" id="m-unit-sub">After platform COGS</div>
               </div>
             </div>
             <p class="text-sm text-muted mt-1" id="m-note">
-              Live from your orders × pilot rates. COGS defaults: driver $20 + supplies $2.50 + risk $1.50 + ops $3 ≈ $27/job.
+              Pure SaaS: you pay subscription (not per-package courier fees). You own drivers, liability, and door checklists.
               <a href="#economics">Open calculator</a>
             </p>
           </div>
@@ -284,13 +284,13 @@
                   <div class="form-grid">
                     <label class="field">Plan
                       <select name="plan" id="econ-plan">
-                        <option value="starter">Starter — $0/mo + $29/pickup (+$4 same-day)</option>
-                        <option value="growth" selected>Growth — $149/mo + $24/pickup (same-day included)</option>
-                        <option value="network">Network — $499/mo + $20/pickup (same-day included)</option>
+                        <option value="starter">Starter — $99/mo · 200 orders</option>
+                        <option value="growth" selected>Growth — $249/mo · 1,500 orders</option>
+                        <option value="network">Network — $699/mo · 10,000 orders</option>
                       </select>
                     </label>
-                    <label class="field">Completed PurCheaper pickups / month
-                      <input name="pickups" id="econ-pickups" type="number" min="0" step="1" value="80" />
+                    <label class="field">Orders on platform / month
+                      <input name="pickups" id="econ-pickups" type="number" min="0" step="1" value="400" />
                     </label>
                     <label class="field">% of pickups using same-day pay
                       <input name="same_day_pct" id="econ-same-day" type="number" min="0" max="100" step="1" value="85" />
@@ -316,8 +316,8 @@
             </div>
 
             <div class="stat-row" id="econ-stats" style="grid-template-columns:repeat(2,1fr)">
-              <div class="stat"><div class="label">PurCheaper cost / mo</div><div class="value" id="econ-cost">—</div><div class="sub" id="econ-cost-sub">Platform + pickups + pay rail</div></div>
-              <div class="stat"><div class="label">Cost per pickup</div><div class="value" id="econ-cpp">—</div><div class="sub">Blended all-in fee</div></div>
+              <div class="stat"><div class="label">PurCheaper cost / mo</div><div class="value" id="econ-cost">—</div><div class="sub" id="econ-cost-sub">Subscription + overage</div></div>
+              <div class="stat"><div class="label">Software cost / order</div><div class="value" id="econ-cpp">—</div><div class="sub">Blended SaaS</div></div>
               <div class="stat"><div class="label">Incremental closes</div><div class="value" id="econ-extra">—</div><div class="sub">From conversion lift</div></div>
               <div class="stat"><div class="label">Net after PurCheaper</div><div class="value" id="econ-net">—</div><div class="sub" id="econ-net-sub">Incremental GP − fees</div></div>
             </div>
@@ -361,24 +361,24 @@
                   <tbody>
                     <tr>
                       <td><strong>Starter</strong></td>
-                      <td>$0</td>
-                      <td>$29</td>
-                      <td>+$4 when released</td>
-                      <td>50 / mo</td>
+                      <td>$99</td>
+                      <td>$0 (SaaS)</td>
+                      <td>Tools included</td>
+                      <td>200 orders</td>
                     </tr>
                     <tr>
                       <td><strong>Growth</strong></td>
-                      <td>$149</td>
-                      <td>$24</td>
-                      <td>Included</td>
-                      <td>300 / mo</td>
+                      <td>$249</td>
+                      <td>$0 (SaaS)</td>
+                      <td>Tools included</td>
+                      <td>1,500 orders</td>
                     </tr>
                     <tr>
                       <td><strong>Network</strong></td>
-                      <td>from $499</td>
-                      <td>$19–$22</td>
-                      <td>Included</td>
-                      <td>SLA / unlimited</td>
+                      <td>$699</td>
+                      <td>$0 (SaaS)</td>
+                      <td>Tools included</td>
+                      <td>10,000 orders</td>
                     </tr>
                   </tbody>
                 </table>

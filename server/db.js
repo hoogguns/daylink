@@ -9,6 +9,7 @@ const EMPTY = () => ({
   orders: [],
   order_events: [],
   leads: [],
+  checklist_templates: [],
 });
 
 function ensureDir(filePath) {

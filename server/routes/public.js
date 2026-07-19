@@ -37,20 +37,21 @@ router.get('/health', (_req, res) => {
   });
 });
 
-/** Public pricing sheet (no auth) for marketing + calculator defaults */
+/** Public pricing sheet (no auth) — pure SaaS */
 router.get('/pricing', (_req, res) => {
   res.json({
     market: COVERAGE.market,
     currency: 'USD',
+    model: 'saas_subscription',
     plans: Object.values(PLANS).filter((p) => p.id !== 'pilot'),
     notes: [
-      'Fees billed to buyback partners only — not device sellers.',
-      'Completed pickup = device collected (includes mismatch holds).',
-      'Cancelled before driver claim = $0.',
-      'Pilot rates locked 90 days from first live order.',
+      'Subscription SaaS for buyback operators — not a courier marketplace fee.',
+      'Partners own drivers, liability, and door-grading checklists.',
+      'Included order volume per plan; soft overage only if you exceed the cap.',
+      'Tracking numbers, dual status (partner + driver), API, payment-gate tools included.',
     ],
-    estimated_cogs_per_pickup: cogsPerPickup(),
-    cogs_breakdown: COGS,
+    platform_cogs_note: 'PurCheaper COGS is hosting/support — not per-package labor.',
+    platform_cogs: COGS,
   });
 });
 
@@ -83,9 +84,9 @@ router.get('/how-it-works', (_req, res) => {
       ],
       partners: [
         { step: 1, title: 'Connect your buyback flow', body: 'Create pickup orders via dashboard or API when a seller accepts a quote.' },
-        { step: 2, title: 'We dispatch a driver', body: 'PurCheaper-trained gig drivers accept buyback orders in-zone.' },
-        { step: 3, title: 'On-site verify & pack', body: 'Driver checks condition, locks, power, model/storage against your specs and packs the device.' },
-        { step: 4, title: 'Pay with confidence', body: 'Match = same-day seller payment. Mismatch = you review before funds move.' },
+        { step: 2, title: 'Your drivers claim the job', body: 'You staff drivers (gig or W-2). They use PurCheaper for status + your checklist.' },
+        { step: 3, title: 'Door grade on your rules', body: 'Partner-owned checklists grade the device; you own liability and outcomes.' },
+        { step: 4, title: 'Track + pay + ship', body: 'Push carrier tracking, dual status updates, same-day pay gate when verified.' },
       ],
     },
   });

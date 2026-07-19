@@ -71,23 +71,22 @@
       if ($('#profit-period')) $('#profit-period').textContent = e.period_label || e.period;
       if ($('#m-invoice')) {
         $('#m-invoice').textContent = money2(inv.total);
-        $('#m-invoice-sub').textContent = `${inv.plan.name} · ${act.completed_pickups} pickups · platform ${money2(inv.platform_fee)}`;
+        $('#m-invoice-sub').textContent = `${inv.plan.name} · sub ${money2(inv.platform_fee)} · overage ${money2(inv.overage_fees || 0)}`;
       }
       if ($('#m-profit')) {
         $('#m-profit').textContent = money2(prof.contribution);
         $('#m-profit').style.color = prof.contribution >= 0 ? 'var(--good)' : 'var(--bad)';
-        $('#m-profit-sub').textContent = `COGS ${money2(prof.cogs_total)} (${money2(prof.cogs_per_pickup)}/job)`;
+        $('#m-profit-sub').textContent = `Platform COGS ${money2(prof.cogs_total)} (hosting/support)`;
       }
       if ($('#m-pickups')) {
         $('#m-pickups').textContent = String(act.completed_pickups);
         $('#m-pickups-sub').textContent = `${act.orders_created} created · ${act.paid} paid · ${act.mismatch} mismatch`;
       }
       if ($('#m-unit')) {
-        const u = prof.contribution_per_pickup;
-        $('#m-unit').textContent = u == null ? '—' : money2(u);
+        $('#m-unit').textContent = prof.margin_pct == null ? '—' : `${prof.margin_pct.toFixed(0)}%`;
         $('#m-unit-sub').textContent =
-          prof.margin_pct == null ? 'No billable pickups yet' : `${prof.margin_pct.toFixed(0)}% contribution margin`;
-        if (u != null) $('#m-unit').style.color = u >= 0 ? 'var(--good)' : 'var(--bad)';
+          prof.margin_pct == null ? 'No SaaS bill yet' : 'Contribution margin on SaaS revenue';
+        if (prof.margin_pct != null) $('#m-unit').style.color = prof.margin_pct >= 0 ? 'var(--good)' : 'var(--bad)';
       }
 
       // Economics tab live block
@@ -99,14 +98,13 @@
         $('#e-live-profit-sub').textContent = 'Your platform profit on their volume (est.)';
         $('#e-live-breakdown').innerHTML = [
           row('Period', e.period_label || e.period),
+          row('Model', inv.model || 'saas_subscription'),
           row('Plan', inv.plan.name),
-          row('Completed pickups', String(act.completed_pickups)),
-          row('Same-day / paid', String(act.paid)),
-          row('Platform fee', money2(inv.platform_fee)),
-          row('Pickup fees', money2(inv.pickup_fees), `${act.completed_pickups} × ${money2(inv.plan.perPickup)}`),
-          row('Same-day fees', money2(inv.same_day_fees)),
-          row('Partner invoice total', money2(inv.total)),
-          row('Est. COGS (driver+kit+risk+ops)', money2(prof.cogs_total), money2(prof.cogs_per_pickup) + ' each'),
+          row('Orders completed', String(act.completed_pickups)),
+          row('Subscription', money2(inv.platform_fee)),
+          row('Overage fees', money2(inv.overage_fees || 0)),
+          row('Partner SaaS bill', money2(inv.total)),
+          row('Platform COGS (hosting/support)', money2(prof.cogs_total)),
           row('PurCheaper contribution', money2(prof.contribution)),
         ].join('');
       }
@@ -166,6 +164,15 @@
     $('#detail-status').innerHTML = statusChip(order.status);
     const specs = order.expected_specs || {};
     const verified = order.verified_specs || {};
+    const checklist = order.door_checklist || {};
+    const partnerStatuses = [
+      'pending', 'assigned', 'en_route', 'picked_up', 'verifying', 'verified',
+      'mismatch', 'paid', 'shipped', 'in_transit', 'delivered', 'cancelled',
+    ];
+    const statusOpts = partnerStatuses
+      .map((s) => `<option value="${s}" ${s === order.status ? 'selected' : ''}>${s}</option>`)
+      .join('');
+
     const actions = [];
     if (order.status === 'verified' && !order.paid) {
       actions.push(`<button class="btn btn-accent btn-sm" type="button" id="act-pay">Release same-day pay</button>`);
@@ -173,7 +180,7 @@
     if (['pending', 'assigned'].includes(order.status)) {
       actions.push(`<button class="btn btn-soft btn-sm" type="button" id="act-assign">Assign driver</button>`);
     }
-    if (!['paid', 'cancelled'].includes(order.status)) {
+    if (!['delivered', 'cancelled'].includes(order.status)) {
       actions.push(`<button class="btn btn-ghost btn-sm" type="button" id="act-cancel">Cancel</button>`);
     }
 
@@ -193,6 +200,52 @@
           <div><strong>IMEI:</strong> <span class="mono">${escapeHtml(order.imei || '—')}</span></div>
           <div><strong>Packed:</strong> ${order.packed ? 'Yes' : 'No'} · <strong>Paid:</strong> ${order.paid ? 'Yes @ ' + fmtWhen(order.paid_at) : 'No'}</div>
         </div>
+
+        <div class="card" style="padding:.65rem;box-shadow:none">
+          <div class="text-sm mb-1"><strong>Update status</strong> <span class="text-muted">(partner or driver)</span></div>
+          <div class="row" style="align-items:stretch">
+            <select id="act-status" style="flex:1;min-height:40px;border:1px solid var(--line);border-radius:8px;padding:.4rem">${statusOpts}</select>
+            <button class="btn btn-primary btn-sm" type="button" id="act-status-save">Save status</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:.65rem;box-shadow:none">
+          <div class="text-sm mb-1"><strong>Carrier tracking</strong> <span class="text-muted">(buyback label / parcel)</span></div>
+          <div class="form-grid" style="gap:.4rem">
+            <label class="field">Carrier
+              <select id="trk-carrier">
+                ${['', 'UPS', 'FedEx', 'USPS', 'DHL', 'Other']
+                  .map(
+                    (c) =>
+                      `<option value="${c}" ${String(order.tracking_carrier || '') === c ? 'selected' : ''}>${c || 'Select…'}</option>`
+                  )
+                  .join('')}
+              </select>
+            </label>
+            <label class="field">Tracking #
+              <input id="trk-number" class="mono" value="${escapeHtml(order.tracking_number || '')}" placeholder="1Z…" />
+            </label>
+            <label class="field full">Tracking URL (optional)
+              <input id="trk-url" value="${escapeHtml(order.tracking_url || '')}" placeholder="https://…" />
+            </label>
+          </div>
+          <div class="row mt-1">
+            <button class="btn btn-soft btn-sm" type="button" id="act-tracking">Save tracking</button>
+            <label class="text-sm" style="display:flex;align-items:center;gap:.35rem">
+              <input type="checkbox" id="trk-shipped" /> Mark shipped
+            </label>
+            ${
+              order.tracking_url
+                ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(order.tracking_url)}" target="_blank" rel="noopener">Open track →</a>`
+                : ''
+            }
+          </div>
+        </div>
+
+        <div>
+          <div class="text-sm"><strong>Door checklist</strong> <span class="chip chip-brand">Partner-owned</span></div>
+          <pre class="mono text-sm" style="margin:.25rem 0 0;white-space:pre-wrap;background:var(--canvas);padding:.5rem;border-radius:6px">${escapeHtml(JSON.stringify(checklist, null, 2))}</pre>
+        </div>
         <div>
           <div class="text-sm"><strong>Expected specs</strong></div>
           <pre class="mono text-sm" style="margin:.25rem 0 0;white-space:pre-wrap;background:var(--canvas);padding:.5rem;border-radius:6px">${escapeHtml(JSON.stringify(specs, null, 2))}</pre>
@@ -200,11 +253,10 @@
         ${
           order.verified_specs
             ? `<div>
-                <div class="text-sm"><strong>Verification</strong> ${
+                <div class="text-sm"><strong>Door result</strong> ${
                   order.verification_match ? statusChip('verified') : statusChip('mismatch')
                 }</div>
                 <pre class="mono text-sm" style="margin:.25rem 0 0;white-space:pre-wrap;background:var(--canvas);padding:.5rem;border-radius:6px">${escapeHtml(JSON.stringify(verified, null, 2))}</pre>
-                ${order.verification_notes ? `<p class="text-sm mt-1">${escapeHtml(order.verification_notes)}</p>` : ''}
               </div>`
             : ''
         }
@@ -229,6 +281,30 @@
       </div>
     `;
 
+    $('#act-status-save')?.addEventListener('click', async () => {
+      try {
+        await API.partnerStatus(order.id, $('#act-status').value);
+        await refreshAll();
+        await showDetail(order.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    $('#act-tracking')?.addEventListener('click', async () => {
+      try {
+        await API.partnerTracking(order.id, {
+          tracking_carrier: $('#trk-carrier').value || null,
+          tracking_number: $('#trk-number').value || null,
+          tracking_url: $('#trk-url').value || null,
+          mark_shipped: $('#trk-shipped').checked,
+        });
+        await refreshAll();
+        await showDetail(order.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
     const payBtn = $('#act-pay');
     if (payBtn) {
       payBtn.addEventListener('click', async () => {
@@ -236,6 +312,7 @@
         try {
           await API.payOrder(order.id);
           await refreshAll();
+          await showDetail(order.id);
         } catch (err) {
           alert(err.message);
         }
@@ -258,7 +335,6 @@
       assignBtn.addEventListener('click', () => openAssign(order.id));
     }
 
-    // re-highlight table
     loadOrders().catch(() => {});
   }
 
@@ -293,27 +369,21 @@
   const PLANS = {
     starter: {
       name: 'Starter',
-      monthly: 0,
-      perPickup: 29,
-      sameDayFee: 4,
-      sameDayIncluded: false,
-      cap: 50,
+      monthly: 99,
+      included: 200,
+      overage: 0.25,
     },
     growth: {
       name: 'Growth',
-      monthly: 149,
-      perPickup: 24,
-      sameDayFee: 0,
-      sameDayIncluded: true,
-      cap: 300,
+      monthly: 249,
+      included: 1500,
+      overage: 0.15,
     },
     network: {
       name: 'Network',
-      monthly: 499,
-      perPickup: 20,
-      sameDayFee: 0,
-      sameDayIncluded: true,
-      cap: null,
+      monthly: 699,
+      included: 10000,
+      overage: 0.08,
     },
   };
 
@@ -335,79 +405,55 @@
     if (!$('#econ-form')) return;
     const planKey = ($('#econ-plan') && $('#econ-plan').value) || 'growth';
     const plan = PLANS[planKey] || PLANS.growth;
-    let pickups = Math.max(0, num('econ-pickups', 0));
-    if (plan.cap != null && pickups > plan.cap) {
-      // still calculate but note overage mentally — charge as-is for pilot
-    }
-    const sameDayPct = Math.min(100, Math.max(0, num('econ-same-day', 0))) / 100;
+    const orders = Math.max(0, num('econ-pickups', 0));
     const avgQuote = Math.max(0, num('econ-quote', 0));
     const marginPct = Math.min(100, Math.max(0, num('econ-margin', 0))) / 100;
     const baseline = Math.max(0, num('econ-baseline', 0));
     const liftPct = Math.min(100, Math.max(0, num('econ-lift', 0))) / 100;
     const mismatchPct = Math.min(100, Math.max(0, num('econ-mismatch', 0))) / 100;
 
-    const sameDayCount = pickups * sameDayPct;
-    const sameDayFees = plan.sameDayIncluded ? 0 : sameDayCount * plan.sameDayFee;
-    const pickupFees = pickups * plan.perPickup;
-    const monthlyFees = plan.monthly + pickupFees + sameDayFees;
-    const cpp = pickups > 0 ? monthlyFees / pickups : plan.perPickup;
-
-    // Incremental closes from offering same-day (lift applied to baseline volume)
+    const overageUnits = Math.max(0, orders - plan.included);
+    const overage = overageUnits * plan.overage;
+    const saasFee = plan.monthly + overage;
+    const cpp = orders > 0 ? saasFee / orders : plan.monthly;
     const extraCloses = baseline * liftPct;
-    // Only paid matches contribute device GP; mismatches still incur pickup fee
     const paidFraction = 1 - mismatchPct;
     const incrementalGp = extraCloses * avgQuote * marginPct * paidFraction;
-    const net = incrementalGp - monthlyFees;
+    const net = incrementalGp - saasFee;
 
-    $('#econ-cost').textContent = money(monthlyFees);
-    $('#econ-cost-sub').textContent = `${plan.name}: ${money(plan.monthly)} platform + pickups`;
+    $('#econ-cost').textContent = money(saasFee);
+    $('#econ-cost-sub').textContent = plan.name + ' SaaS ' + money(plan.monthly) + ' + overage ' + money(overage);
     $('#econ-cpp').textContent = money(Math.round(cpp));
     $('#econ-extra').textContent = extraCloses.toFixed(1);
     $('#econ-net').textContent = money(Math.round(net));
-    $('#econ-net-sub').textContent = net >= 0 ? 'Positive ROI at these assumptions' : 'Fees exceed modeled lift — adjust inputs';
+    $('#econ-net-sub').textContent = net >= 0 ? 'Positive ROI on SaaS' : 'SaaS exceeds modeled lift';
     $('#econ-net').style.color = net >= 0 ? 'var(--good)' : 'var(--bad)';
 
     $('#econ-roi-body').innerHTML = [
+      row('Model', 'Pure SaaS subscription'),
       row('Plan', plan.name),
-      row('Platform fee / mo', money(plan.monthly)),
-      row('Pickup fees / mo', money(pickupFees), `${pickups} × ${money(plan.perPickup)}`),
-      row('Same-day pay fees / mo', money(Math.round(sameDayFees)), plan.sameDayIncluded ? 'Included on Growth/Network' : `${Math.round(sameDayCount)} × ${money(plan.sameDayFee)}`),
-      row('Total PurCheaper cost / mo', money(Math.round(monthlyFees))),
-      row('Blended cost / pickup', money(Math.round(cpp))),
-      row('Baseline monthly closes', String(baseline)),
-      row('Conversion lift', `${(liftPct * 100).toFixed(1)}%` ),
-      row('Incremental closes', extraCloses.toFixed(1)),
-      row('Avg quote × margin', `${money(avgQuote)} × ${(marginPct * 100).toFixed(0)}%`),
-      row('Mismatch / non-pay rate', `${(mismatchPct * 100).toFixed(1)}%`, 'Applied to incremental GP only'),
-      row('Incremental gross profit', money(Math.round(incrementalGp))),
-      row('Net after PurCheaper', money(Math.round(net))),
+      row('Subscription / mo', money(plan.monthly)),
+      row('Included orders', String(plan.included)),
+      row('Orders this month', String(orders)),
+      row('Overage', money(overage), overageUnits + ' × $' + plan.overage),
+      row('Total SaaS cost / mo', money(Math.round(saasFee))),
+      row('Your driver/logistics cost', 'You pay (not PurCheaper)'),
+      row('Incremental GP from same-day tools', money(Math.round(incrementalGp))),
+      row('Net after SaaS', money(Math.round(net))),
     ].join('');
-
-    const sameDayLine = plan.sameDayIncluded
-      ? row('Same-day pay rail', 'Included', 'When status = verified → paid')
-      : row('Same-day pay rail', money(plan.sameDayFee), 'Only if you release pay');
 
     $('#econ-unit-body').innerHTML = [
-      row('Completed pickup fee', money(plan.perPickup)),
-      sameDayLine,
-      row('Typical all-in (w/ same-day)', money(plan.perPickup + (plan.sameDayIncluded ? 0 : plan.sameDayFee))),
-      row('As % of $' + avgQuote + ' quote', `${avgQuote ? (((plan.perPickup + (plan.sameDayIncluded ? 0 : plan.sameDayFee)) / avgQuote) * 100).toFixed(1) : '0'}%`),
-      row('vs own courier desk', 'Usually lower', 'Recruiting, insurance, training, no-shows'),
+      row('What PurCheaper sells', 'Software control plane'),
+      row('Dual status + tracking API', 'Included'),
+      row('Partner-owned door checklists', 'Included'),
+      row('Per-package courier fee', '$0 — not our model'),
     ].join('');
 
-    const capNote =
-      plan.cap != null && pickups > plan.cap
-        ? ` Note: ${plan.name} pilot cap is ${plan.cap}/mo — talk to us about Growth/Network.`
-        : '';
-    if (net >= 0) {
-      $('#econ-verdict').textContent =
-        `At these assumptions, same-day via PurCheaper adds ~${money(Math.round(net))}/mo after fees (${money(Math.round(cpp))} blended per pickup).${capNote}`;
-      $('#econ-verdict').style.color = 'var(--good)';
-    } else {
-      $('#econ-verdict').textContent =
-        `Under these assumptions fees exceed incremental gross profit by ${money(Math.round(-net))}/mo. Raise lift, volume, or margin — or lower pickups until product-market fit is clear.${capNote}`;
-      $('#econ-verdict').style.color = 'var(--bad)';
-    }
+    $('#econ-verdict').textContent =
+      net >= 0
+        ? 'SaaS can pay for itself if same-day tooling lifts closes ~' + (liftPct * 100).toFixed(0) + '% on baseline.'
+        : 'At these lift assumptions the subscription costs more than incremental GP.';
+    $('#econ-verdict').style.color = net >= 0 ? 'var(--good)' : 'var(--bad)';
   }
 
   function setView(name) {

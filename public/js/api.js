@@ -87,8 +87,14 @@ const API = {
     API.request(`/api/partner/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
   assignOrder: (id, driver_id) =>
     API.request(`/api/partner/orders/${id}/assign`, { method: 'POST', body: { driver_id } }),
+  partnerStatus: (id, status, notes) =>
+    API.request(`/api/partner/orders/${id}/status`, { method: 'POST', body: { status, notes } }),
+  partnerTracking: (id, body) =>
+    API.request(`/api/partner/orders/${id}/tracking`, { method: 'POST', body }),
+  partnerChecklists: () => API.request('/api/partner/checklists'),
   partnerDrivers: () => API.request('/api/partner/drivers'),
   partnerEconomics: () => API.request('/api/partner/economics'),
+  partnerStatuses: () => API.request('/api/partner/statuses'),
   publicPricing: () => API.request('/api/pricing', { auth: false }),
 
   // driver
@@ -99,12 +105,14 @@ const API = {
       body: { start_route },
       role: 'driver',
     }),
-  driverStatus: (id, status) =>
+  driverStatus: (id, status, notes) =>
     API.request(`/api/driver/orders/${id}/status`, {
       method: 'POST',
-      body: { status },
+      body: { status, notes },
       role: 'driver',
     }),
+  driverTracking: (id, body) =>
+    API.request(`/api/driver/orders/${id}/tracking`, { method: 'POST', body, role: 'driver' }),
   verifyOrder: (id, body) =>
     API.request(`/api/driver/orders/${id}/verify`, { method: 'POST', body, role: 'driver' }),
   driverOrder: (id) => API.request(`/api/driver/orders/${id}`, { role: 'driver' }),
