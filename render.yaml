@@ -1,5 +1,5 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Deploy: Dashboard → New → Blueprint → connect hoogguns/daylink
+# Deploy: Dashboard → New → Blueprint → connect hoogguns/purcheaper
 services:
   - type: web
     name: purcheaper

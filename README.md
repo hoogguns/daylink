@@ -136,7 +136,7 @@ PurCheaper/
 
 ## Repo
 
-https://github.com/hoogguns/daylink
+https://github.com/hoogguns/purcheaper
 
 ## License
 

@@ -15,10 +15,10 @@ HTTP requests are redirected to HTTPS by Render’s edge.
 
 ## Option A — Dashboard (fastest)
 
-1. Push latest code to **https://github.com/hoogguns/daylink** (already done if you’re up to date).
+1. Push latest code to **https://github.com/hoogguns/purcheaper** (already done if you’re up to date).
 2. Go to [https://dashboard.render.com](https://dashboard.render.com) → sign in with GitHub.
 3. **New +** → **Web Service**.
-4. Connect **hoogguns/daylink**.
+4. Connect **hoogguns/purcheaper**.
 5. Settings:
 
    | Field | Value |
@@ -54,7 +54,7 @@ Health check: `https://<your-service>.onrender.com/api/health`
 ## Option B — Blueprint (`render.yaml`)
 
 1. In Render: **New +** → **Blueprint**.
-2. Select **hoogguns/daylink** (repo root has `render.yaml`).
+2. Select **hoogguns/purcheaper** (repo root has `render.yaml`).
 3. Apply. Set/confirm env vars (especially `JWT_SECRET`).
 4. Deploy.
 
